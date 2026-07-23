@@ -6,7 +6,7 @@ use serde_json::json;
 // The tokio macro wraps main function so it can run async code
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Mobius Initialized. Type 'exit' or 'quit' to close.");
+    println!("Mobius Initialized. Type '/bye', '/q' or '/quit' to close.");
     
     // HTTP client which'll be reused for every request
     let client = Client::new();
@@ -38,18 +38,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let payload = json!({
             "messages": [
                 {
+                    "role": "system",
+                    "content": "You are Mobius, a concise terminal AI assistant running locally on Arch Linux. Provide direct, helpful answers."
+                },
+                {
                     "role": "user",
                     "content": input
                 }
+
             ],
-            "temperature": 0.3, // Keeping the value low for agentic output
-            "max_tokens": 2048
+            
+            //"stream": true,
         });
         
         // 4. Start the spinner in a background task
         let spinner = tokio::spawn(async move {
             // A braille spinner animation array
-            let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            // let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+            let frames = [
+              "(-_-)ゝ", 
+              "(-_-)ゞ", 
+              "(•_•)ヽ", 
+              "(•_•)ヾ", 
+              "(•_•)ゝ", 
+              "(•_•)ゞ", 
+              "(._.)ヽ", 
+              "(._.)ヾ", 
+              "(°_°)ゝ", 
+              "(-_-)ゞ"  
+            ];
+
             let mut i = 0;
             
             loop {
@@ -60,8 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Flush forces the terminal to draw immediately
                 let _ = io::stdout().flush();
                 
-                // Pause for 80 milliseconds before drawing the next frame
-                tokio::time::sleep(Duration::from_millis(80)).await;
+                // Pause for 300 milliseconds before drawing the next frame
+                tokio::time::sleep(Duration::from_millis(300)).await;
                 i += 1;
             }
         });
