@@ -132,6 +132,110 @@ fn create_custom_edit_mode() -> Box<dyn EditMode> {
 }
 
 // --- Query Mobius Engine ---
+// async fn ask_mobius(
+//     client: &Client,
+//     server_url: &str,
+//     prompt: &str,
+//     thinking_level: ThinkingLevel,
+// ) -> Result<String, Box<dyn std::error::Error>> {
+//     let (enable_thinking, effort_str) = thinking_level.to_params();
+
+//     let payload = json!({
+//         "messages": [
+//             {
+//                 "role": "system",
+//                 "content": "You are Mobius agent, a concise terminal AI assistant. Provide direct, helpful answers."
+//             },
+//             {
+//                 "role": "user",
+//                 "content": prompt
+//             }
+//         ],
+//         "chat_template_kwargs": {
+//             "enable_thinking": enable_thinking,
+//             "reasoning_effort": effort_str
+//         },
+//         "reasoning_effort": effort_str,
+//         "stream": true
+//     });
+
+//     // let sprite = tokio::spawn(async move {
+//     //     let frames = [
+//     //         "(•‿•)ゝ",
+//     //         "(•‿•)ゞ",
+//     //         "(•‿•)ゝ",
+//     //         "(•_•)ゞ",
+//     //         "(•_•)ゝ",
+//     //         "(•_•)ゞ",
+//     //         "(-_-)ゝ",
+//     //         "(-_-)ゞ",
+//     //         "(-_-)ゝ",
+//     //         "(⇀‸↼)ゞ",
+//     //         "(⇀‸↼)ゝ",
+//     //         "(⇀‸↼)ゞ",
+//     //     ];
+
+//     //     let mut f = 0;
+//     //     loop {
+//     //         print!(
+//     //             "\r\x1B[2KMobius is thinking... {}",
+//     //             frames[f % frames.len()]
+//     //         );
+//     //         let _ = io::stdout().flush();
+//     //         tokio::time::sleep(Duration::from_millis(300)).await;
+//     //         f += 1;
+//     //     }
+//     // });
+
+//     // Send the request and wait ONLY for the initial connection (Time To First Token)
+//     let mut response = client.post(server_url).json(&payload).send().await?;
+
+//     // The moment we get HTTP headers back, stop the sprite!
+//     // sprite.abort();
+//     print!("\r\x1B[2K"); // Clear the sprite line
+//     print!("\x1B[32mMobius:\x1B[0m "); // Print the Mobius prefix in green
+//     let _ = io::stdout().flush();
+
+//     if !response.status().is_success() {
+//         return Err(format!("Server returned HTTP status {}", response.status()).into());
+//     }
+
+//     let mut full_text = String::new();
+//     let mut buffer = String::new();
+
+//     // Stream the body chunk by chunk
+//     while let Some(chunk) = response.chunk().await? {
+//         // Convert the raw bytes to a string and add to our buffer
+//         buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+//         // Process complete lines (Server-Sent Events are separated by newlines)
+//         while let Some(newline_idx) = buffer.find('\n') {
+//             let line = buffer[..newline_idx].trim().to_string();
+//             buffer.drain(..=newline_idx); // Remove the processed line from buffer
+
+//             if line.starts_with("data: ") {
+//                 let json_data = &line[6..];
+
+//                 // llama.cpp sends [DONE] when the stream is finished
+//                 if json_data == "[DONE]" {
+//                     break;
+//                 }
+
+//                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_data) {
+//                     // Extract the token delta
+//                     if let Some(content) = parsed["choices"][0]["delta"]["content"].as_str() {
+//                         print!("{}", content);
+//                         let _ = io::stdout().flush();
+//                         full_text.push_str(content);
+//                     }
+//                 }
+//             }
+//         }
+//     }
+
+//     Ok(full_text)
+// }
+
 async fn ask_mobius(
     client: &Client,
     server_url: &str,
@@ -159,72 +263,67 @@ async fn ask_mobius(
         "stream": true
     });
 
-    let sprite = tokio::spawn(async move {
-        let frames = [
-            "(•‿•)ゝ",
-            "(•‿•)ゞ",
-            "(•‿•)ゝ",
-            "(•_•)ゞ",
-            "(•_•)ゝ",
-            "(•_•)ゞ",
-            "(-_-)ゝ",
-            "(-_-)ゞ",
-            "(-_-)ゝ",
-            "(⇀‸↼)ゞ",
-            "(⇀‸↼)ゝ",
-            "(⇀‸↼)ゞ",
-        ];
-
-        let mut f = 0;
-        loop {
-            print!(
-                "\r\x1B[2KMobius is thinking... {}",
-                frames[f % frames.len()]
-            );
-            let _ = io::stdout().flush();
-            tokio::time::sleep(Duration::from_millis(300)).await;
-            f += 1;
-        }
-    });
-
-    // Send the request and wait ONLY for the initial connection (Time To First Token)
     let mut response = client.post(server_url).json(&payload).send().await?;
-
-    // The moment we get HTTP headers back, stop the sprite!
-    sprite.abort();
-    print!("\r\x1B[2K"); // Clear the sprite line
-    print!("\x1B[32mMobius:\x1B[0m "); // Print the Mobius prefix in green
-    let _ = io::stdout().flush();
 
     if !response.status().is_success() {
         return Err(format!("Server returned HTTP status {}", response.status()).into());
     }
 
+    // Print the Mobius prefix in Green before the stream starts
+    print!("\x1B[32mMobius:\x1B[0m ");
+    let _ = io::stdout().flush();
+
     let mut full_text = String::new();
     let mut buffer = String::new();
 
-    // Stream the body chunk by chunk
+    // State tracker for raw <think> tags
+    let mut in_thinking_block = false;
+
     while let Some(chunk) = response.chunk().await? {
-        // Convert the raw bytes to a string and add to our buffer
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-        // Process complete lines (Server-Sent Events are separated by newlines)
         while let Some(newline_idx) = buffer.find('\n') {
             let line = buffer[..newline_idx].trim().to_string();
-            buffer.drain(..=newline_idx); // Remove the processed line from buffer
+            buffer.drain(..=newline_idx);
 
             if line.starts_with("data: ") {
                 let json_data = &line[6..];
 
-                // llama.cpp sends [DONE] when the stream is finished
                 if json_data == "[DONE]" {
                     break;
                 }
 
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_data) {
-                    // Extract the token delta
-                    if let Some(content) = parsed["choices"][0]["delta"]["content"].as_str() {
-                        print!("{}", content);
+                    let delta = &parsed["choices"][0]["delta"];
+
+                    // 1. Handle API-native reasoning (DeepSeek R1 via modern llama.cpp)
+                    if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str())
+                    {
+                        // \x1B[90m turns text dark grey, \x1B[0m resets it
+                        print!("\x1B[90m{}\x1B[0m", reasoning);
+                        let _ = io::stdout().flush();
+                        full_text.push_str(reasoning);
+                    }
+
+                    // 2. Handle standard content (with fallback for literal <think> tags)
+                    if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
+                        // Check if the token contains the opening tag
+                        if content.contains("<think>") || content.contains("<thinking>") {
+                            in_thinking_block = true;
+                        }
+
+                        // Print in grey if we are in a thinking block, otherwise default terminal color
+                        if in_thinking_block {
+                            print!("\x1B[90m{}\x1B[0m", content);
+                        } else {
+                            print!("{}", content);
+                        }
+
+                        // Check if the token contains the closing tag
+                        if content.contains("</think>") || content.contains("</thinking>") {
+                            in_thinking_block = false;
+                        }
+
                         let _ = io::stdout().flush();
                         full_text.push_str(content);
                     }
