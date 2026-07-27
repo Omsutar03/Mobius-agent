@@ -4,10 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# The standard asynchronous runtime for Rust
-tokio = { version = "1.37", features = ["full"] }
-# The HTTP client, with the "json" feature enabled
-reqwest = { version = "0.12", features = ["json"] }
-# For easily creating and parsing JSON objects
-serde_json = "1.0"
-reedline = "0.38"
+pico-args = "0.5.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.53.0", features = ["full"] }
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
