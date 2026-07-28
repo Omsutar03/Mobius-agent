@@ -1,6 +1,8 @@
 use reqwest::Client;
 use serde_json::json;
 use std::io::{self, Write};
+use tokio::io::AsyncWriteExt;
+use tokio::net::UnixStream;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThinkingLevel {
@@ -43,22 +45,14 @@ impl ThinkingLevel {
 pub async fn ask_mobius(
     client: &Client,
     server_url: &str,
-    prompt: &str,
+    messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
+    stream: &mut UnixStream,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let (enable_thinking, effort_str) = thinking_level.to_params();
 
     let payload = json!({
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are Mobius agent, a concise terminal AI assistant. Provide direct, helpful answers."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
+        "messages": messages_payload,
         "chat_template_kwargs": {
             "enable_thinking": enable_thinking,
             "reasoning_effort": effort_str
@@ -76,7 +70,6 @@ pub async fn ask_mobius(
     let mut full_text = String::new();
     let mut buffer = String::new();
 
-    // Stream state flags
     let mut printed_mobius_prefix = false;
     let mut has_thought = false;
     let mut in_thinking_block = false;
@@ -98,19 +91,18 @@ pub async fn ask_mobius(
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_data) {
                     let delta = &parsed["choices"][0]["delta"];
 
-                    // 1. Handle native reasoning API field (e.g. reasoning_content)
                     if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str())
                     {
                         if !reasoning.is_empty() {
                             has_thought = true;
-                            // Print thinking tokens in dark grey (\x1B[90m)
-                            print!("\x1B[90m{}\x1B[0m", reasoning);
-                            let _ = io::stdout().flush();
+                            // Write raw bytes to the Unix stream instead of stdout
+                            let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
+                            stream.write_all(formatted.as_bytes()).await?;
+                            stream.flush().await?;
                             full_text.push_str(reasoning);
                         }
                     }
 
-                    // 2. Handle standard content tokens
                     if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
                         if content.contains("<think>") || content.contains("<thinking>") {
                             in_thinking_block = true;
@@ -118,23 +110,22 @@ pub async fn ask_mobius(
 
                         if in_thinking_block {
                             has_thought = true;
-                            print!("\x1B[90m{}\x1B[0m", content);
-                            let _ = io::stdout().flush();
+                            let formatted = format!("\x1B[90m{}\x1B[0m", content);
+                            stream.write_all(formatted.as_bytes()).await?;
+                            stream.flush().await?;
                             full_text.push_str(content);
                         } else {
-                            // This is actual response content!
-                            // If this is the first content token, print the Mobius prefix
                             if !printed_mobius_prefix {
                                 if has_thought {
-                                    println!(); // Line break after the thinking block
+                                    stream.write_all(b"\n").await?;
                                 }
-                                print!("\x1B[32mMobius:\x1B[0m ");
-                                let _ = io::stdout().flush();
+                                stream.write_all(b"\x1B[32mMobius:\x1B[0m ").await?;
+                                stream.flush().await?;
                                 printed_mobius_prefix = true;
                             }
 
-                            print!("{}", content);
-                            let _ = io::stdout().flush();
+                            stream.write_all(content.as_bytes()).await?;
+                            stream.flush().await?;
                             full_text.push_str(content);
                         }
 
@@ -147,6 +138,8 @@ pub async fn ask_mobius(
         }
     }
 
-    println!(); // Final newline after stream completes
+    stream.write_all(b"\n").await?;
+    stream.flush().await?;
+
     Ok(full_text)
 }

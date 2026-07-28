@@ -9,6 +9,8 @@ pub enum FlagAction {
 
 #[derive(Debug)]
 pub struct CliArgs {
+    pub daemon_mode: bool,
+    pub stop_daemon: bool,
     pub new_session: bool,
     pub thinking_level: Option<FlagAction>,
     pub model: Option<FlagAction>,
@@ -19,6 +21,12 @@ pub struct CliArgs {
 impl CliArgs {
     pub fn parse() -> Result<Self, String> {
         let mut par = Arguments::from_env();
+
+        // Check for daemon mode first
+        let daemon_mode = par.contains("--daemon-mode");
+
+        // Flag for stopping daemon
+        let stop_daemon = par.contains("--stop-daemon");
 
         // 1. Extract all flags
         let new_session = par.contains(["-n", "--new-s"]); // For new chat session in same TTY session.
@@ -37,10 +45,25 @@ impl CliArgs {
             .collect();
 
         let prompt = prompt_words.join(" ");
+        let has_prompt = !prompt.is_empty();
+
+        // If running in daemon mode, bypass normal CLI validation
+        if daemon_mode {
+            return Ok(CliArgs {
+                daemon_mode,
+                stop_daemon: false,
+                new_session: false,
+                thinking_level: None,
+                model: None,
+                last_lines: None,
+                prompt: String::new(),
+            });
+        }
 
         // 3. Security checks
         // A: Only one flag should be present at a time
         let flag_count = [
+            stop_daemon,
             new_session,
             thinking_level.is_some(),
             model.is_some(),
@@ -56,27 +79,37 @@ impl CliArgs {
             );
         }
 
-        // B: -n / --new-s MUST be standalone (no prompt allowed)
-        if new_session && !prompt.is_empty() {
+        // B: --stop-daemon MUST be standalone (no prompt allowed)
+        if stop_daemon && has_prompt {
+            return Err(
+                "The `--stop-daemon` flag must be used on its own. Do not pass a prompt."
+                    .to_string(),
+            );
+        }
+
+        // C: -n / --new-s MUST be standalone (no prompt allowed)
+        if new_session && has_prompt {
             return Err(
                 "The `-n` / `--new-s` flag must be used on its own. Do not pass a prompt with it."
                     .to_string(),
             );
         }
 
-        // C: -t / --thinking MUST be standalone / value-only (no prompt allowed)
-        if thinking_level.is_some() && !prompt.is_empty() {
+        // D: -t / --thinking MUST be standalone / value-only (no prompt allowed)
+        if thinking_level.is_some() && has_prompt {
             return Err(
                 "The `-t` / `--thinking` flag is strictly for setting or querying thinking levels. Do not pass a prompt with it.".to_string(),
             );
         }
 
-        // D: -m / --model MUST be standalone / value-only (no prompt allowed)
-        if model.is_some() && !prompt.is_empty() {
+        // E: -m / --model MUST be standalone / value-only (no prompt allowed)
+        if model.is_some() && has_prompt {
             return Err("The model flag (-m / --model) is strictly for querying or switching models. Do not pass a prompt with it.".to_string());
         }
 
         Ok(CliArgs {
+            daemon_mode,
+            stop_daemon,
             new_session,
             thinking_level,
             model,
@@ -94,7 +127,6 @@ fn parse_flag_action(
         Ok(Some(val)) => Ok(Some(FlagAction::Set(val))),
         Ok(None) => Ok(None),
         Err(Error::OptionWithoutAValue(_)) => {
-            // Consumes and removes the orphaned flag from `par` so it won't leak into `prompt`
             let _ = par.contains(keys);
             Ok(Some(FlagAction::Query))
         }
