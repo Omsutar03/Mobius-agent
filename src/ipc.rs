@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub struct IpcRequest {
     pub ppid: u32,
     pub prompt: String,
-    pub new_session: bool,
     pub thinking_level_override: Option<String>,
     pub shutdown: bool,
 }

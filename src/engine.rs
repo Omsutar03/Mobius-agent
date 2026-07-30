@@ -1,6 +1,6 @@
 use reqwest::Client;
 use serde_json::json;
-use std::io::{self, Write};
+//use std::io::{self, Write};
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 
@@ -19,9 +19,9 @@ impl ThinkingLevel {
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "off" => Some(Self::Off),
-            "minimal" => Some(Self::Minimal),
+            "minimal" | "min" => Some(Self::Minimal),
             "low" => Some(Self::Low),
-            "medium" => Some(Self::Medium),
+            "medium" | "med" => Some(Self::Medium),
             "high" => Some(Self::High),
             "xhigh" => Some(Self::XHigh),
             "max" => Some(Self::Max),

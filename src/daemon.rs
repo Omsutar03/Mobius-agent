@@ -9,7 +9,7 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::engine::{ThinkingLevel, ask_mobius};
 use crate::ipc::IpcRequest;
 
-/// Resolves the path to `~/.local/state/mobius/mobius.sock`
+// Resolves the path to `~/.local/state/mobius/mobius.sock`
 pub fn get_socket_path() -> PathBuf {
     let home = env::var("HOME").expect("Could not find HOME directory");
     let state_dir = PathBuf::from(home)
@@ -25,19 +25,19 @@ pub fn get_socket_path() -> PathBuf {
     state_dir.join("mobius.sock")
 }
 
-/// Starts the background listener loop
+// Starts the background listener loop
 pub async fn start_daemon() {
     let socket_path = get_socket_path();
 
     // Unix sockets leave a ghost file behind if the process crashes.
-    // We must delete the old file before we can bind to the path again.
+    // Must delete the old file before we can bind to the path again.
     if socket_path.exists() {
         fs::remove_file(&socket_path).expect("Failed to clean up old Unix socket");
     }
 
     let listener = UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
 
-    // We create a single HTTP client and share it across all connections
+    // Create a single HTTP client and share it across all connections
     // to benefit from connection pooling to llama-server.
     let http_client = Client::new();
 
@@ -101,24 +101,19 @@ async fn handle_connection(
         .and_then(ThinkingLevel::from_str)
         .unwrap_or(ThinkingLevel::Off);
 
-    // --- NEW MEMORY LOGIC ---
+    // --- SESSION & INFERENCE PIPELINE ---
 
-    // 1. If user passed `-n`, wipe the slate clean
-    if request.new_session {
-        Session::clear(request.ppid);
-    }
-
-    // 2. Load past history from disk (or start fresh)
+    // 1. Load past history from disk (or start fresh)
     let mut session = Session::load(request.ppid);
 
-    // 3. Append the user's new prompt
+    // 2. Append the user's new prompt
     session.add_message("user", &request.prompt);
 
-    // 4. Generate the payload to send to the engine
+    // 3. Generate the payload to send to the engine
     let messages_payload = session.get_api_messages();
     let server_url = "http://localhost:8080/v1/chat/completions";
 
-    // 5. Trigger the engine and capture the final response
+    // 4. Trigger the engine and capture the final response
     let final_response = ask_mobius(
         &client,
         server_url,
@@ -128,7 +123,7 @@ async fn handle_connection(
     )
     .await?;
 
-    // 6. Append the AI's response and save back to disk
+    // 5. Append the AI's response and save back to disk
     session.add_message("assistant", &final_response);
     session.save(request.ppid);
 

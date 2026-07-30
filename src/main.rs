@@ -1,4 +1,5 @@
 // TODO: `-l` or `--last` flag
+// TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
 mod cli;
 mod daemon;
 mod engine;
@@ -7,7 +8,6 @@ mod session;
 
 use cli::{CliArgs, FlagAction};
 use engine::{ThinkingLevel, ask_mobius};
-//use reqwest::Client;
 use ipc::IpcRequest;
 use std::env;
 use std::io::{self, Write};
@@ -45,7 +45,7 @@ async fn main() {
         let mut stream = match UnixStream::connect(&socket_path).await {
             Ok(s) => s,
             Err(_) => {
-                // If it exists but we can't connect, it might be a dead ghost file
+                // If it exists but can't connect, it might be a dead ghost file
                 let _ = std::fs::remove_file(socket_path);
                 println!("🧹 Cleaned up unresponsive daemon socket.");
                 return;
@@ -55,12 +55,11 @@ async fn main() {
         let request = IpcRequest {
             ppid: std::os::unix::process::parent_id(),
             prompt: String::new(),
-            new_session: false,
             thinking_level_override: None,
-            shutdown: true, // Trigger the shutdown!
+            shutdown: true, // Triggers the daemon shutdown!
         };
 
-        let json_payload = serde_json::to_string(&request).unwrap();
+        let json_payload = serde_json::to_string(&request).expect("Failed to serialize request");
         let _ = stream.write_all(json_payload.as_bytes()).await;
         let _ = stream.shutdown().await;
 
@@ -119,19 +118,18 @@ async fn main() {
 
     // Prepare the JSON payload
     let thinking_level_override = match args.thinking_level {
-        Some(FlagAction::Set(val)) => Some(val),
-        _ => None,
+        Some(FlagAction::Set(val)) => Some(val), // If the flag exists (Some), AND its action is Set, extract 'val'
+        _ => None, // If it is anything else (None, or a different FlagAction variant), return None
     };
 
     let request = IpcRequest {
         ppid: std::os::unix::process::parent_id(), // Grab the terminal tab's Process ID
         prompt: args.prompt,
-        new_session: args.new_session,
         thinking_level_override,
         shutdown: false,
     };
 
-    let json_payload = serde_json::to_string(&request).unwrap();
+    let json_payload = serde_json::to_string(&request).expect("Failed to serialize request");
 
     // Send the payload to the daemon over the socket
     if let Err(e) = stream.write_all(json_payload.as_bytes()).await {
@@ -159,63 +157,15 @@ async fn main() {
             }
         }
     }
-
-    // match CliArgs::parse() {
-    //     Ok(args) => {
-    //         // For now, if the user provides a prompt, we just send it to the engine directly.
-    //         if !args.prompt.is_empty() {
-    //             // Determine the thinking level for this request
-    //             let thinking_level =
-    //                 ThinkingLevel::from_str("medium").unwrap_or(ThinkingLevel::Off);
-
-    //             // Hardcoded for testing, will move this to config.rs later
-    //             let server_url = "http://localhost:8080/v1/chat/completions";
-    //             let client = Client::new();
-
-    //             match ask_mobius(&client, server_url, &args.prompt, thinking_level).await {
-    //                 Ok(_) => {} // Stream is already printed to stdout
-    //                 Err(e) => eprintln!("❌ Mobius Engine Error: {}", e),
-    //             }
-
-    //             return;
-    //         }
-
-    //         // `-n` or `--new-s` flag
-    //         if args.new_session {
-    //             println!("🧹 Initializing new session..."); // Placeholder
-    //         }
-
-    //         // `-t` or `--thinking` flag
-    //         match &args.thinking_level {
-    //             Some(FlagAction::Query) => {
-    //                 println!("Thinking Level (-t / --thinking): [QUERY MODE]");
-    //                 println!("  💡 Current Level: Off (Default)");
-    //                 println!("  💡 Available Options: off, minimal, low, medium, high, xhigh, max");
-    //             }
-    //             _ => {}
-    //         }
-
-    //         // '-m' or '--model' flag
-    //         match &args.model {
-    //             Some(FlagAction::Query) => {
-    //                 println!("Model (-m / --model)             : [QUERY MODE]");
-    //                 println!("  🤖 Current Model: local (Default)");
-    //                 println!("  🤖 Available Options: local, gemini, claude");
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-    //     Err(err) => {
-    //         eprintln!("❌ Error: {}", err);
-    //     }
-    // }
 }
 
 // Helper function to handle metadata queries (-t, -m)
 fn handle_queries(args: &CliArgs) {
     // `-n` or `--new-s` flag
     if args.new_session {
-        println!("🧹 Initializing new session...");
+        let ppid = std::os::unix::process::parent_id();
+        session::Session::clear(ppid);
+        println!("🧹 Initialized new session.");
     }
 
     // `-t` or `--thinking` flag
@@ -223,7 +173,7 @@ fn handle_queries(args: &CliArgs) {
         Some(FlagAction::Query) => {
             println!("Thinking Level (-t / --thinking): [QUERY MODE]");
             println!("  💡 Current Level: Off (Default)");
-            println!("  💡 Available Options: off, minimal, low, medium, high, xhigh, max");
+            println!("  💡 Available Options: off, min/minimal, low, med/medium, high, xhigh, max");
         }
         _ => {}
     }
