@@ -161,21 +161,45 @@ async fn main() {
 
 // Helper function to handle metadata queries (-t, -m)
 fn handle_queries(args: &CliArgs) {
+    let ppid = std::os::unix::process::parent_id();
+
     // `-n` or `--new-s` flag
     if args.new_session {
-        let ppid = std::os::unix::process::parent_id();
         session::Session::clear(ppid);
         println!("🧹 Initialized new session.");
     }
 
     // `-t` or `--thinking` flag
-    match &args.thinking_level {
-        Some(FlagAction::Query) => {
-            println!("Thinking Level (-t / --thinking): [QUERY MODE]");
-            println!("  💡 Current Level: Off (Default)");
-            println!("  💡 Available Options: off, min/minimal, low, med/medium, high, xhigh, max");
+    if let Some(ref action) = args.thinking_level {
+        let mut session = session::Session::load(ppid);
+
+        match action {
+            cli::FlagAction::Query => {
+                let current = session.thinking_level.as_deref().unwrap_or("off");
+                println!("Thinking Level (-t / --thinking): [QUERY MODE]");
+                println!("  💡 Current Level: {}", current);
+                println!(
+                    "  💡 Available Options: off, min/minimal, low, med/medium, high, xhigh, max"
+                );
+            }
+            cli::FlagAction::Set(val) => {
+                // Validate if the input string is a recognized level
+                if engine::ThinkingLevel::from_str(val).is_some() {
+                    session.thinking_level = Some(val.clone());
+                    session.save(ppid);
+                    println!(
+                        "✅ Thinking level set to '{}' for current session (PID {}).",
+                        val, ppid
+                    );
+                } else {
+                    eprintln!("❌ Invalid thinking level '{}'.", val);
+                    eprintln!(
+                        "  💡 Available options: off, min/minimal, low, med/medium, high, xhigh, max"
+                    );
+                }
+            }
         }
-        _ => {}
+        return;
     }
 
     // '-m' or '--model' flag

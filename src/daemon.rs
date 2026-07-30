@@ -95,25 +95,28 @@ async fn handle_connection(
         std::process::exit(0);
     }
 
-    let thinking_level = request
-        .thinking_level_override
-        .as_deref()
-        .and_then(ThinkingLevel::from_str)
-        .unwrap_or(ThinkingLevel::Off);
-
     // --- SESSION & INFERENCE PIPELINE ---
 
     // 1. Load past history from disk (or start fresh)
     let mut session = Session::load(request.ppid);
 
-    // 2. Append the user's new prompt
+    // 2. Resolve active Thinking Level (IPC override takes priority, then Session state, fallback to Off)
+    let thinking_str = request
+        .thinking_level_override
+        .as_deref()
+        .or(session.thinking_level.as_deref())
+        .unwrap_or("off");
+
+    let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Off);
+
+    // 3. Append the user's new prompt
     session.add_message("user", &request.prompt);
 
-    // 3. Generate the payload to send to the engine
+    // 4. Generate the payload to send to the engine
     let messages_payload = session.get_api_messages();
     let server_url = "http://localhost:8080/v1/chat/completions";
 
-    // 4. Trigger the engine and capture the final response
+    // 5. Trigger the engine and capture the final response
     let final_response = ask_mobius(
         &client,
         server_url,
@@ -123,7 +126,7 @@ async fn handle_connection(
     )
     .await?;
 
-    // 5. Append the AI's response and save back to disk
+    // 6. Append the AI's response and save back to disk
     session.add_message("assistant", &final_response);
     session.save(request.ppid);
 

@@ -12,6 +12,8 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Session {
     pub messages: Vec<Message>,
+    #[serde(default)]
+    pub thinking_level: Option<String>,
 }
 
 impl Session {
