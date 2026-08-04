@@ -1,10 +1,14 @@
 // TODO: `-l` or `--last` flag
+// TODO: `-m` or `--model` flag
+// TODO: `--help` flag
 // TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
+// TODO: Load past conversations
 mod cli;
 mod daemon;
 mod engine;
 mod ipc;
 mod session;
+mod tools;
 
 use cli::{CliArgs, FlagAction};
 use engine::{ThinkingLevel, ask_mobius};

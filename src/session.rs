@@ -73,7 +73,10 @@ impl Session {
     pub fn get_api_messages(&self) -> serde_json::Value {
         let mut api_msgs = vec![serde_json::json!({
             "role": "system",
-            "content": "You are Mobius agent, a concise terminal AI assistant. Provide direct, helpful answers."
+            "content": "You are Mobius, a concise terminal AI assistant. You can execute bash commands on the user's system by outputting RUN <command> on its own line.\n\n\
+                    RULES:\n\
+                    1. To run a command, output ONLY 'RUN <command>' on a line.\n\
+                    2. After receiving command output, you MUST always summarize or state the final answer clearly to the user. Never return an empty response."
         })];
 
         for msg in &self.messages {

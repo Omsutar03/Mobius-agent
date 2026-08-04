@@ -8,6 +8,7 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::engine::{ThinkingLevel, ask_mobius};
 use crate::ipc::IpcRequest;
+use crate::tools;
 
 // Resolves the path to `~/.local/state/mobius/mobius.sock`
 pub fn get_socket_path() -> PathBuf {
@@ -112,22 +113,52 @@ async fn handle_connection(
     // 3. Append the user's new prompt
     session.add_message("user", &request.prompt);
 
-    // 4. Generate the payload to send to the engine
-    let messages_payload = session.get_api_messages();
     let server_url = "http://localhost:8080/v1/chat/completions";
+    let mut max_tool_turns = 5;
 
-    // 5. Trigger the engine and capture the final response
-    let final_response = ask_mobius(
-        &client,
-        server_url,
-        messages_payload,
-        thinking_level,
-        stream,
-    )
-    .await?;
+    // 4. Multi-turn agent execution loop
+    while max_tool_turns > 0 {
+        let messages_payload = session.get_api_messages();
 
-    // 6. Append the AI's response and save back to disk
-    session.add_message("assistant", &final_response);
+        // Query LLM and stream chunk response
+        let response = ask_mobius(
+            &client,
+            server_url,
+            messages_payload,
+            thinking_level,
+            stream,
+        )
+        .await?;
+
+        // Save model's reponse to history
+        session.add_message("assistant", &response);
+
+        // Check if the response contains local tool command
+        if let Some(tools::ToolCall::Shell(cmd)) = tools::parse_tool_call(&response) {
+            // Print visual status mesasge to the user terinal
+            let status_msg = format!("\x1B[33m⚡ [Executing]:\x1B[0m {}\n", cmd);
+            stream.write_all(status_msg.as_bytes()).await?;
+
+            // Execute shell command with timeout
+            let output_str = match tools::execute_shell_command(&cmd, 10).await {
+                Ok(out) => out.to_llm_string(),
+                Err(err_msg) => format!("[Execution Error]: {}", err_msg),
+            };
+
+            // Feed execution result back into chat history for next iteration
+            let tool_feedback = format!(
+                "[Tool Output for `{}`]:\n{}\n\nPlease provide the final response to the user based on this output.",
+                cmd, output_str
+            );
+            session.add_message("user", &tool_feedback);
+
+            max_tool_turns -= 1;
+        } else {
+            break; // No tool call requested
+        }
+    }
+
+    // Save final updated session back to disk
     session.save(request.ppid);
 
     Ok(())
