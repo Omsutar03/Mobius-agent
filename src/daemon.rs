@@ -106,9 +106,9 @@ async fn handle_connection(
         .thinking_level_override
         .as_deref()
         .or(session.thinking_level.as_deref())
-        .unwrap_or("off");
+        .unwrap_or("med");
 
-    let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Off);
+    let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Medium);
 
     // 3. Append the user's new prompt
     session.add_message("user", &request.prompt);
