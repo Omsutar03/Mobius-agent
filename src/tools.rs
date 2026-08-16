@@ -4,7 +4,7 @@ use tokio::time::timeout;
 
 #[derive(Debug, PartialEq)]
 pub enum ToolCall {
-    // Direct bash/shell command execution (e.g., `RUN ls -la`)
+    // Direct bash/shell command execution (e.g., `bash ls -la`)
     Shell(String),
 }
 
@@ -49,8 +49,8 @@ pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
     for line in text.lines() {
         let trimmed = line.trim();
 
-        // Detect command syntax starting with `RUN`
-        if let Some(cmd) = trimmed.strip_prefix("RUN ") {
+        // Detect command syntax starting with `bash`
+        if let Some(cmd) = trimmed.strip_prefix("bash ") {
             return Some(ToolCall::Shell(cmd.trim().to_string()));
         }
     }
