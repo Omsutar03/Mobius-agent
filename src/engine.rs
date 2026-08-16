@@ -99,7 +99,7 @@ pub async fn ask_mobius(
                             let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
                             stream.write_all(formatted.as_bytes()).await?;
                             stream.flush().await?;
-                            full_text.push_str(reasoning);
+                            // full_text.push_str(reasoning);
                         }
                     }
 
@@ -113,7 +113,7 @@ pub async fn ask_mobius(
                             let formatted = format!("\x1B[90m{}\x1B[0m", content);
                             stream.write_all(formatted.as_bytes()).await?;
                             stream.flush().await?;
-                            full_text.push_str(content);
+                            // full_text.push_str(content);
                         } else {
                             if !printed_mobius_prefix {
                                 if has_thought {
