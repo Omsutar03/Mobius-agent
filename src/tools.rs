@@ -1,11 +1,30 @@
+use reqwest::header::CONTENT_DISPOSITION;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 
 #[derive(Debug, PartialEq)]
 pub enum ToolCall {
-    // Direct bash/shell command execution (e.g., `bash ls -la`)
+    // Direct bash/shell command execution (e.g. `bash ls -la`)
     Shell(String),
+
+    // File reading tool (e.g. `read src/main.rs`)
+    Read {
+        path: String,
+    },
+
+    // File creation and overwrite (e.g. `write test1.py print("Hello Word!")`)
+    Write {
+        path: String,
+        content: String,
+    },
+
+    // File edit (e.g. `edit test1.py print("Hello Word!") print("Hello World!")`)
+    Edit {
+        path: String,
+        old_text: String,
+        new_text: String,
+    },
 }
 
 #[derive(Debug)]
@@ -46,12 +65,104 @@ impl CommandOutput {
 }
 
 pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
-    for line in text.lines() {
+    let mut lines = text.lines().peekable();
+
+    while let Some(line) = lines.next() {
         let trimmed = line.trim();
 
-        // Detect command syntax starting with `bash`
-        if let Some(cmd) = trimmed.strip_prefix("bash ") {
-            return Some(ToolCall::Shell(cmd.trim().to_string()));
+        if trimmed.starts_with("```") {
+            let header = trimmed.trim_start_matches('`').trim();
+
+            if header == "bash" || header == "sh" {
+                // Check for bash tool
+                let mut cmd = String::new();
+
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    cmd.push_str(line);
+                    cmd.push('\n');
+                }
+
+                // Execution of 'bash' tool
+                if !cmd.trim().is_empty() {
+                    return Some(ToolCall::Shell(cmd.trim().to_string()));
+                }
+            } else if header == "read" {
+                // Check for read tool
+                let mut path = String::new();
+
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    path.push_str(line.trim());
+                }
+
+                // Execution of 'read' tool
+                if !path.is_empty() {
+                    return Some(ToolCall::Read { path });
+                }
+            } else if let Some(path) = header.strip_prefix("write ") {
+                let mut content = String::new();
+
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    content.push_str(line);
+                    content.push('\n');
+                }
+
+                // Execution of 'write' tool
+                return Some(ToolCall::Write {
+                    path: path.trim().to_string(),
+                    content,
+                });
+            } else if let Some(path) = header.strip_prefix("edit ") {
+                let mut content = String::new();
+
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    content.push_str(line);
+                    content.push('\n');
+                }
+
+                // Execution of 'edit' tool
+                if let Some((old_text, new_text)) = parse_edit_markers(&content) {
+                    return Some(ToolCall::Edit {
+                        path: path.trim().to_string(),
+                        old_text,
+                        new_text,
+                    });
+                }
+            }
+        }
+    }
+
+    // for line in text.lines() {
+    //     let trimmed = line.trim();
+
+    //     // Detect command syntax starting with `bash`
+    //     if let Some(cmd) = trimmed.strip_prefix("bash ") {
+    //         return Some(ToolCall::Shell(cmd.trim().to_string()));
+    //     }
+    // }
+
+    None
+}
+
+fn parse_edit_markers(content: &str) -> Option<(String, String)> {
+    // To split the content using single seprator line
+    if let Some((old_text, new_text)) = content.split_once("<===>") {
+        let old = old_text.trim().trim_matches('\n').to_string();
+        let new = new_text.trim().trim_matches('\n').to_string();
+
+        if !old.is_empty() {
+            return Some((old, new));
         }
     }
 
