@@ -134,23 +134,42 @@ async fn handle_connection(
         session.add_message("assistant", &response);
 
         // Check if the response contains local tool command
-        if let Some(tools::ToolCall::Shell(cmd)) = tools::parse_tool_call(&response) {
-            // Print visual status mesasge to the user terinal
-            let status_msg = format!("\x1B[33m⚡ [Executing]:\x1B[0m {}\n", cmd);
-            stream.write_all(status_msg.as_bytes()).await?;
+        if let Some(tool_call) = tools::parse_tool_call(&response) {
+            match tool_call {
+                tools::ToolCall::Shell(cmd) => {
+                    // Print visual status mesasge to the user terinal
+                    let status_msg = format!("\x1B[33m⚡ [Executing]:\x1B[0m {}\n", cmd);
+                    stream.write_all(status_msg.as_bytes()).await?;
 
-            // Execute shell command with timeout
-            let output_str = match tools::execute_shell_command(&cmd, 10).await {
-                Ok(out) => out.to_llm_string(),
-                Err(err_msg) => format!("[Execution Error]: {}", err_msg),
-            };
+                    // Execute shell command with timeout
+                    let output_str = match tools::execute_shell_command(&cmd, 10).await {
+                        Ok(out) => out.to_llm_string(),
+                        Err(err_msg) => format!("[Execution Error]: {}", err_msg),
+                    };
 
-            // Feed execution result back into chat history for next iteration
-            let tool_feedback = format!(
-                "[Tool Output for `{}`]:\n{}\n\nPlease provide the final response to the user based on this output.",
-                cmd, output_str
-            );
-            session.add_message("user", &tool_feedback);
+                    // Feed execution result back into chat history for next iteration
+                    let tool_feedback = format!(
+                        "[Tool Output for `{}`]:\n{}\n\nPlease provide the final response to the user based on this output.",
+                        cmd, output_str
+                    );
+                    session.add_message("user", &tool_feedback);
+                }
+                tools::ToolCall::Read { path } => {
+                    let status_msg = format!("\x1B[36m📄 [Reading File]:\x1B[0m {}\n", path);
+                    stream.write_all(status_msg.as_bytes()).await?;
+
+                    let output_str = tools::execute_read_command(&path).await;
+
+                    let tool_feedback = format!(
+                        "{}\n\nPlease analyze this file content and answer the user.",
+                        output_str
+                    );
+                    session.add_message("user", &tool_feedback);
+                }
+                _ => {
+                    session.add_message("user", "[System]: Tool not fully implemented yet.");
+                }
+            }
 
             max_tool_turns -= 1;
         } else {

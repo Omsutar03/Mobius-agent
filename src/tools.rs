@@ -1,5 +1,6 @@
 use reqwest::header::CONTENT_DISPOSITION;
 use std::time::Duration;
+use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
 
@@ -195,4 +196,42 @@ pub async fn execute_shell_command(
             timeout_secs
         )),
     }
+}
+
+pub async fn execute_read_command(path: &str) -> String {
+    let clean_path = path.trim();
+
+    let content = match fs::read_to_string(clean_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            return format!(
+                "❌ [Read Error]: Failed to read '{}'. Reason: {}",
+                clean_path, e
+            );
+        }
+    };
+
+    let mut output = format!("[Contents of {}]\n", clean_path);
+    let max_lines = 500; // TO protect model's contex window
+    let mut line_count = 0;
+
+    for (i, line) in content.lines().enumerate() {
+        if i >= max_lines {
+            output.push_str(&format!(
+                "\n... ⚠️ [File truncated after {} lines. Too large to read entirely.]\n",
+                max_lines
+            ));
+            break;
+        }
+
+        // Add line numbers as prefix for edit tool
+        output.push_str(&format!("{:4} | {}\n", i + 1, line));
+        line_count += 1;
+    }
+
+    if line_count == 0 {
+        output.push_str("File is Empty!\n");
+    }
+
+    output
 }
