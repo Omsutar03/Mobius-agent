@@ -178,6 +178,18 @@ async fn handle_connection(
                     );
                     session.add_message("user", &tool_feedback);
                 }
+                tools::ToolCall::Write { path, content } => {
+                    let status_msg = format!("\x1B[33m✍️  [Writing File]:\x1B[0m {}\n", path);
+                    stream.write_all(status_msg.as_bytes()).await?;
+
+                    let output_str = tools::execute_write_command(&path, &content).await;
+
+                    let tool_feedback = format!(
+                        "{}\n\nPlease confirm to the user that the file was created or updated successfully.",
+                        output_str
+                    );
+                    session.add_message("user", &tool_feedback);
+                }
                 _ => {
                     session.add_message("user", "[System]: Tool not fully implemented yet.");
                 }

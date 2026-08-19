@@ -98,18 +98,24 @@ impl Session {
 
             You have full access to tools:
             - `read` to read local file contents.
+            - 'write' to create or overwrite local text files.
             - `bash` to run shell commands.
 
             TOOL BLOCK SYNTAX:
             To use a tool, you MUST output a Markdown block using the tool name:
 
             TOOL USAGE:
-            1. 'read' - To read a TEXT BASED FILE/s (make sure to include path of the file you want to read):
+            1. 'read' - Reads a TEXT BASED FILE/s (make sure to include path of the file you want to read):
             ```read
             ~/obsidian_vaults/general/Mobius-Plan.md
             ```
-
-            2. 'bash' - Executes shell commands:
+            
+            2. 'write' - Writes content in a local file.
+            ```write ~/path/to/file.txt
+            Content to be written goes here.
+            ```
+            
+            3. 'bash' - Executes shell commands:
             ```bash
             ls -la ~/obsidian_vaults/general
             ```
@@ -117,6 +123,7 @@ impl Session {
             PATH RESOLUTION RULES:
             - If the user mentions a filename that was previously listed in an 'ls' or 'bash' output, COMBINE the directory path from history with the filename (e.g., '~/obsidian_vaults/general/Mobius-Plan.md').
             - Use 'read' instead of 'cat' whenever you need to inspect file contents.
+            - Prefer 'write' over 'echo >' or bash output redirection when creating or updating text files.
 
             CRITICAL BEHAVIOR RULES:
             1. NEVER REFUSE FILE ACCESS: Never state 'I do not have access to files' or 'I am an AI'. You have full system access. If a file path is incomplete, locate it or construct the path from chat history.

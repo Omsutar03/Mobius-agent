@@ -251,3 +251,35 @@ pub async fn execute_read_command(path: &str) -> String {
 
     output
 }
+
+pub async fn execute_write_command(path: &str, content: &str) -> String {
+    let expanded_path = expand_path(path);
+    let path_obj = Path::new(&expanded_path);
+
+    // 1. Create parent directories if they don't exist yet
+    if let Some(parent) = path_obj.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(e) = fs::create_dir_all(parent).await {
+                return format!(
+                    "❌ [Write Error]: Failed to create directories for '{}'. Reason: {}",
+                    expanded_path, e
+                );
+            }
+        }
+    }
+
+    // 2. Write the content asynchronously to disk
+    match fs::write(&expanded_path, content).await {
+        Ok(_) => {
+            let bytes = content.len();
+            format!(
+                "✅ [Write Success]: Successfully wrote {} bytes to '{}'.",
+                bytes, expanded_path
+            )
+        }
+        Err(e) => format!(
+            "❌ [Write Error]: Failed to write to file '{}'. Reason: {}",
+            expanded_path, e
+        ),
+    }
+}
