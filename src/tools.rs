@@ -198,20 +198,35 @@ pub async fn execute_shell_command(
     }
 }
 
-pub async fn execute_read_command(path: &str) -> String {
-    let clean_path = path.trim();
+/// Helper function to expand tildes (`~`) to the user's home directory
+fn expand_path(path: &str) -> String {
+    let clean = path.trim().trim_matches('"').trim_matches('\'');
+    if clean.starts_with("~/") || clean == "~" {
+        if let Ok(home) = std::env::var("HOME") {
+            if clean == "~" {
+                return home;
+            }
+            return format!("{}/{}", home, &clean[2..]);
+        }
+    }
+    clean.to_string()
+}
 
-    let content = match fs::read_to_string(clean_path).await {
+pub async fn execute_read_command(path: &str) -> String {
+    // Expand the tilde before attempting to read!
+    let expanded_path = expand_path(path);
+
+    let content = match fs::read_to_string(&expanded_path).await {
         Ok(c) => c,
         Err(e) => {
             return format!(
                 "❌ [Read Error]: Failed to read '{}'. Reason: {}",
-                clean_path, e
+                expanded_path, e
             );
         }
     };
 
-    let mut output = format!("[Contents of {}]\n", clean_path);
+    let mut output = format!("[Contents of {}]\n", expanded_path);
     let max_lines = 500; // TO protect model's contex window
     let mut line_count = 0;
 

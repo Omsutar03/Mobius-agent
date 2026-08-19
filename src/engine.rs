@@ -1,6 +1,5 @@
 use reqwest::Client;
 use serde_json::json;
-//use std::io::{self, Write};
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 
@@ -48,33 +47,37 @@ pub async fn ask_mobius(
     messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
     stream: &mut UnixStream,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let (enable_thinking, effort_str) = thinking_level.to_params();
 
+    // ALWAYS pass chat_template_kwargs so llama-server explicitly receives enable_thinking: false
     let payload = json!({
         "messages": messages_payload,
+        "stream": true,
         "chat_template_kwargs": {
             "enable_thinking": enable_thinking,
             "reasoning_effort": effort_str
         },
-        "reasoning_effort": effort_str,
-        "stream": true
+        "reasoning_effort": effort_str
     });
 
     let mut response = client.post(server_url).json(&payload).send().await?;
+    let status = response.status();
 
-    if !response.status().is_success() {
-        return Err(format!("Server returned HTTP status {}", response.status()).into());
+    if !status.is_success() {
+        let err_body = response.text().await.unwrap_or_default();
+        return Err(format!("Server HTTP Status Error ({}): {}", status, err_body).into());
     }
 
-    let mut full_text = String::new();
+    let mut full_text = String::new(); // Accumulates ALL delta.content
     let mut buffer = String::new();
 
     let mut printed_mobius_prefix = false;
     let mut has_thought = false;
     let mut in_thinking_block = false;
 
-    while let Some(chunk) = response.chunk().await? {
+    // Labeled outer loop to break out of TCP streaming immediately on [DONE]
+    'stream_loop: while let Some(chunk) = response.chunk().await? {
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
         while let Some(newline_idx) = buffer.find('\n') {
@@ -85,25 +88,27 @@ pub async fn ask_mobius(
                 let json_data = &line[6..];
 
                 if json_data == "[DONE]" {
-                    break;
+                    break 'stream_loop;
                 }
 
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_data) {
                     let delta = &parsed["choices"][0]["delta"];
 
+                    // 1. Handle API's native reasoning_content (DeepSeek / standard API)
                     if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str())
                     {
                         if !reasoning.is_empty() {
                             has_thought = true;
-                            // Write raw bytes to the Unix stream instead of stdout
                             let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
                             stream.write_all(formatted.as_bytes()).await?;
                             stream.flush().await?;
-                            // full_text.push_str(reasoning);
                         }
                     }
 
+                    // 2. Handle standard content (which may contain inline <think> tags)
                     if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
+                        full_text.push_str(content); // Save ALL content to be cleaned later
+
                         if content.contains("<think>") || content.contains("<thinking>") {
                             in_thinking_block = true;
                         }
@@ -113,7 +118,10 @@ pub async fn ask_mobius(
                             let formatted = format!("\x1B[90m{}\x1B[0m", content);
                             stream.write_all(formatted.as_bytes()).await?;
                             stream.flush().await?;
-                            // full_text.push_str(content);
+
+                            if content.contains("</think>") || content.contains("</thinking>") {
+                                in_thinking_block = false;
+                            }
                         } else {
                             if !printed_mobius_prefix {
                                 if has_thought {
@@ -126,11 +134,6 @@ pub async fn ask_mobius(
 
                             stream.write_all(content.as_bytes()).await?;
                             stream.flush().await?;
-                            full_text.push_str(content);
-                        }
-
-                        if content.contains("</think>") || content.contains("</thinking>") {
-                            in_thinking_block = false;
                         }
                     }
                 }
@@ -141,5 +144,38 @@ pub async fn ask_mobius(
     stream.write_all(b"\n").await?;
     stream.flush().await?;
 
-    Ok(full_text)
+    // 3. Clean up any inline thinking blocks before saving text to history / passing to tool parser
+    let final_cleaned_text = clean_thinking_blocks(&full_text);
+
+    Ok(final_cleaned_text)
+}
+
+// Helper function to safely strip thinking blocks so they don't pollute chat history
+fn clean_thinking_blocks(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // Strip <think>...</think>
+    while let Some(start) = result.find("<think>") {
+        if let Some(end) = result[start..].find("</think>") {
+            let abs_end = start + end + 8;
+            result = format!("{}{}", &result[..start], &result[abs_end..]);
+        } else {
+            // Unclosed tag (dangling thought), strip everything after it
+            result = result[..start].to_string();
+            break;
+        }
+    }
+
+    // Strip <thinking>...</thinking>
+    while let Some(start) = result.find("<thinking>") {
+        if let Some(end) = result[start..].find("</thinking>") {
+            let abs_end = start + end + 11;
+            result = format!("{}{}", &result[..start], &result[abs_end..]);
+        } else {
+            result = result[..start].to_string();
+            break;
+        }
+    }
+
+    result.trim().to_string()
 }

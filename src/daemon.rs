@@ -18,7 +18,6 @@ pub fn get_socket_path() -> PathBuf {
         .join("state")
         .join("mobius");
 
-    // Ensure the directory exists
     if !state_dir.exists() {
         fs::create_dir_all(&state_dir).expect("Failed to create mobius state directory");
     }
@@ -50,8 +49,6 @@ pub async fn start_daemon() {
             Ok((mut stream, _addr)) => {
                 let client_clone = http_client.clone();
 
-                // Spawn a new asynchronous task for each incoming connection.
-                // This allows the daemon to handle multiple terminal tabs querying at once!
                 tokio::spawn(async move {
                     if let Err(e) = handle_connection(client_clone, &mut stream).await {
                         eprintln!("❌ Connection error: {}", e);
@@ -101,13 +98,13 @@ async fn handle_connection(
     // 1. Load past history from disk (or start fresh)
     let mut session = Session::load(request.ppid);
 
-    // 2. Resolve active Thinking Level (IPC override takes priority, then Session state, fallback to Off)
-    let thinking_str = request
-        .thinking_level_override
-        .as_deref()
-        .or(session.thinking_level.as_deref())
-        .unwrap_or("off");
+    // 2. Persist thinking level override to the session if explicitly passed via CLI
+    if let Some(ref override_level) = request.thinking_level_override {
+        session.thinking_level = Some(override_level.clone());
+    }
 
+    // Resolve active Thinking Level
+    let thinking_str = session.thinking_level.as_deref().unwrap_or("off");
     let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Off); // Extra fallback for edited/corrupt session file
 
     // 3. Append the user's new prompt
@@ -121,14 +118,25 @@ async fn handle_connection(
         let messages_payload = session.get_api_messages();
 
         // Query LLM and stream chunk response
-        let response = ask_mobius(
+        let response = match ask_mobius(
             &client,
             server_url,
             messages_payload,
             thinking_level,
             stream,
         )
-        .await?;
+        .await
+        {
+            Ok(res) => res,
+            Err(e) => {
+                // Convert to String immediately to drop non-Send `e` before .await
+                let err_str = e.to_string();
+                let err_msg = format!("\n\x1B[31m❌ [Mobius Engine Error]: {}\x1B[0m\n", err_str);
+                let _ = stream.write_all(err_msg.as_bytes()).await;
+                let _ = stream.flush().await;
+                return Err(err_str.into());
+            }
+        };
 
         // Save model's reponse to history
         session.add_message("assistant", &response);
