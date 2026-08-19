@@ -1,3 +1,4 @@
+use crate::Duration;
 use crate::session::Session;
 use reqwest::Client;
 use std::env;
@@ -37,9 +38,13 @@ pub async fn start_daemon() {
 
     let listener = UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
 
-    // Create a single HTTP client and share it across all connections
-    // to benefit from connection pooling to llama-server.
-    let http_client = Client::new();
+    // Disable idle socket reuse on the shared reqwest::Client so every tool turn opens a fresh HTTP connection.
+    let http_client = Client::builder()
+        .pool_max_idle_per_host(0) // Disables keep-alive socket reuse for SSE streams
+        .timeout(Duration::from_secs(300))
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_else(|_| Client::new());
 
     println!("🚀 Mobius Daemon started. Listening on {:?}", socket_path);
 
@@ -66,15 +71,14 @@ async fn handle_connection(
     client: Client,
     stream: &mut UnixStream,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut buffer = vec![0; 8192];
-    let bytes_read = stream.read(&mut buffer).await?;
+    let mut buffer = Vec::new();
+    stream.read_to_end(&mut buffer).await?;
 
-    if bytes_read == 0 {
+    if buffer.is_empty() {
         return Ok(());
     }
 
-    let json_str = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let request: IpcRequest = serde_json::from_str(&json_str)?;
+    let request: IpcRequest = serde_json::from_slice(&buffer)?;
 
     // --- SHUTDOWN LOGIC ---
     if request.shutdown {

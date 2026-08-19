@@ -80,43 +80,47 @@ async fn main() {
     }
 
     // 5. CLIENT MODE (Processing a prompt)
-    // Check if the daemon socket exists. If not, auto-spawn the daemon.
     let socket_path = daemon::get_socket_path();
-    if !socket_path.exists() {
-        let exe = env::current_exe().expect("Failed to get current executable path");
 
-        match Command::new(exe)
-            .arg("--daemon-mode")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            Ok(_) => {
-                // Wait briefly for the daemon to boot up and create the socket file
-                let mut attempts = 0;
-                while !socket_path.exists() && attempts < 20 {
-                    sleep(Duration::from_millis(50)).await;
-                    attempts += 1;
+    // Attempt to connect immediately to check if an active daemon is running
+    let mut stream = match UnixStream::connect(&socket_path).await {
+        Ok(s) => s, // Connection succeeded: Active daemon found
+        Err(_) => {
+            // Connection failed: Clean up dead socket file if it exists
+            if socket_path.exists() {
+                let _ = std::fs::remove_file(&socket_path);
+            }
+
+            // Spawn background daemon process
+            let exe = env::current_exe().expect("Failed to get current executable path");
+            if let Err(e) = Command::new(exe)
+                .arg("--daemon-mode")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                eprintln!("❌ Error: Failed to auto-spawn daemon: {}", e);
+                std::process::exit(1);
+            }
+
+            // Poll-retry connection while the newly spawned daemon binds to socket[cite: 5]
+            let mut connected_stream = None;
+            for _ in 0..20 {
+                sleep(Duration::from_millis(50)).await;
+                if let Ok(s) = UnixStream::connect(&socket_path).await {
+                    connected_stream = Some(s);
+                    break;
                 }
+            }
 
-                if !socket_path.exists() {
+            // Unwrap stream or fail if daemon couldn't bind in 1 second
+            match connected_stream {
+                Some(s) => s,
+                None => {
                     eprintln!("❌ Error: Daemon failed to start or bind socket in time.");
                     std::process::exit(1);
                 }
             }
-            Err(e) => {
-                eprintln!("❌ Error: Failed to auto-spawn daemon: {}", e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // Connect to the background daemon
-    let mut stream = match UnixStream::connect(&socket_path).await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("❌ Error: Could not connect to Mobius daemon: {}", e);
-            std::process::exit(1);
         }
     };
 

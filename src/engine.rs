@@ -84,9 +84,7 @@ pub async fn ask_mobius(
             let line = buffer[..newline_idx].trim().to_string();
             buffer.drain(..=newline_idx);
 
-            if line.starts_with("data: ") {
-                let json_data = &line[6..];
-
+            if let Some(json_data) = line.strip_prefix("data: ") {
                 if json_data == "[DONE]" {
                     break 'stream_loop;
                 }
