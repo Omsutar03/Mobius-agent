@@ -190,8 +190,21 @@ async fn handle_connection(
                     );
                     session.add_message("user", &tool_feedback);
                 }
-                _ => {
-                    session.add_message("user", "[System]: Tool not fully implemented yet.");
+                tools::ToolCall::Edit {
+                    path,
+                    old_text,
+                    new_text,
+                } => {
+                    let status_msg = format!("\x1B[35m✏️  [Editing File]:\x1B[0m {}\n", path);
+                    stream.write_all(status_msg.as_bytes()).await?;
+
+                    let output_str = tools::execute_edit_command(&path, &old_text, &new_text).await;
+
+                    let tool_feedback = format!(
+                        "{}\n\nPlease verify the result and inform the user.",
+                        output_str
+                    );
+                    session.add_message("user", &tool_feedback);
                 }
             }
 

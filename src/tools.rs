@@ -1,4 +1,3 @@
-use reqwest::header::CONTENT_DISPOSITION;
 use std::path::Path;
 use std::time::Duration;
 use tokio::fs;
@@ -158,13 +157,19 @@ pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
 }
 
 fn parse_edit_markers(content: &str) -> Option<(String, String)> {
-    // To split the content using single seprator line
-    if let Some((old_text, new_text)) = content.split_once("<===>") {
-        let old = old_text.trim().trim_matches('\n').to_string();
-        let new = new_text.trim().trim_matches('\n').to_string();
+    // Check for Git-style SEARCH / REPLACE markers (Aider format)
+    if let (Some(s_start), Some(s_mid), Some(s_end)) = (
+        content.find("<<<<<<< SEARCH"),
+        content.find("======="),
+        content.find(">>>>>>> REPLACE"),
+    ) {
+        if s_start < s_mid && s_mid < s_end {
+            let old_text = content[s_start + 14..s_mid].trim_matches('\n').to_string();
+            let new_text = content[s_mid + 7..s_end].trim_matches('\n').to_string();
 
-        if !old.is_empty() {
-            return Some((old, new));
+            if !old_text.is_empty() {
+                return Some((old_text, new_text));
+            }
         }
     }
 
@@ -240,8 +245,8 @@ pub async fn execute_read_command(path: &str) -> String {
             break;
         }
 
-        // Add line numbers as prefix for edit tool
-        output.push_str(&format!("{:4} | {}\n", i + 1, line));
+        output.push_str(line);
+        output.push('\n');
         line_count += 1;
     }
 
@@ -279,6 +284,55 @@ pub async fn execute_write_command(path: &str, content: &str) -> String {
         }
         Err(e) => format!(
             "❌ [Write Error]: Failed to write to file '{}'. Reason: {}",
+            expanded_path, e
+        ),
+    }
+}
+
+pub async fn execute_edit_command(path: &str, old_text: &str, new_text: &str) -> String {
+    let expanded_path = expand_path(path);
+
+    // 1. Read existing file contents (not feeding this to LLM, this is just to cross-verify file's content before editing)
+    let content = match fs::read_to_string(&expanded_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            return format!(
+                "❌ [Edit Error]: Failed to read target file '{}'. Reason: {}",
+                expanded_path, e
+            );
+        }
+    };
+
+    // 2. Check if target text exists in file
+    if !content.contains(old_text) {
+        return format!(
+            "❌ [Edit Error]: The text block to replace was not found in '{}'. \n\
+            💡 Tip: Use 'read' tool first to check exact indentation, whitespace, and line content.",
+            expanded_path
+        );
+    }
+
+    // 3. Check for multiple occurrences
+    let occurrences = content.matches(old_text).count();
+    let updated_content = content.replacen(old_text, new_text, 1);
+
+    // 4. Save updated content back to disk
+    match fs::write(&expanded_path, updated_content).await {
+        Ok(_) => {
+            if occurrences > 1 {
+                format!(
+                    "✅ [Edit Success]: Replaced 1st of {} matching occurrences in '{}'.",
+                    occurrences, expanded_path
+                )
+            } else {
+                format!(
+                    "✅ [Edit Success]: File '{}' updated successfully.",
+                    expanded_path
+                )
+            }
+        }
+        Err(e) => format!(
+            "❌ [Edit Error]: Failed to write changes to '{}'. Reason: {}",
             expanded_path, e
         ),
     }

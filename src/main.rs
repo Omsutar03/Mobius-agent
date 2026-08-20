@@ -11,7 +11,6 @@ mod session;
 mod tools;
 
 use cli::{CliArgs, FlagAction};
-use engine::{ThinkingLevel, ask_mobius};
 use ipc::IpcRequest;
 use std::env;
 use std::io::{self, Write};
