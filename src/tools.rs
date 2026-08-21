@@ -105,37 +105,52 @@ pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
                 if !path.is_empty() {
                     return Some(ToolCall::Read { path });
                 }
-            } else if let Some(path) = header.strip_prefix("write ") {
+            } else if header == "write" {
+                // Check for write tool (Line 1 = path, Line 2+ = content)
+                let mut path = String::new();
                 let mut content = String::new();
+                let mut is_first_line = true;
 
                 for line in lines.by_ref() {
                     if line.trim().starts_with("```") {
                         break;
                     }
-                    content.push_str(line);
-                    content.push('\n');
+                    if is_first_line {
+                        path = line.trim().to_string();
+                        is_first_line = false;
+                    } else {
+                        content.push_str(line);
+                        content.push('\n');
+                    }
                 }
 
                 // Execution of 'write' tool
-                return Some(ToolCall::Write {
-                    path: path.trim().to_string(),
-                    content,
-                });
-            } else if let Some(path) = header.strip_prefix("edit ") {
+                if !path.is_empty() {
+                    return Some(ToolCall::Write { path, content });
+                }
+            } else if header == "edit" {
+                // Check for edit tool (Line 1 = path, Line 2+ = search/replace content)
+                let mut path = String::new();
                 let mut content = String::new();
+                let mut is_first_line = true;
 
                 for line in lines.by_ref() {
                     if line.trim().starts_with("```") {
                         break;
                     }
-                    content.push_str(line);
-                    content.push('\n');
+                    if is_first_line {
+                        path = line.trim().to_string();
+                        is_first_line = false;
+                    } else {
+                        content.push_str(line);
+                        content.push('\n');
+                    }
                 }
 
                 // Execution of 'edit' tool
                 if let Some((old_text, new_text)) = parse_edit_markers(&content) {
                     return Some(ToolCall::Edit {
-                        path: path.trim().to_string(),
+                        path,
                         old_text,
                         new_text,
                     });
@@ -143,15 +158,6 @@ pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
             }
         }
     }
-
-    // for line in text.lines() {
-    //     let trimmed = line.trim();
-
-    //     // Detect command syntax starting with `bash`
-    //     if let Some(cmd) = trimmed.strip_prefix("bash ") {
-    //         return Some(ToolCall::Shell(cmd.trim().to_string()));
-    //     }
-    // }
 
     None
 }

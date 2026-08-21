@@ -58,7 +58,12 @@ pub async fn ask_mobius(
             "enable_thinking": enable_thinking,
             "reasoning_effort": effort_str
         },
-        "reasoning_effort": effort_str
+        "reasoning_effort": effort_str,
+        "temperature": 0.1,
+        "min_p": 0.05,
+        "top_p": 0.9,
+        "presence_penalty": 0.0,
+        "frequency_penalty": 0.0
     });
 
     let mut response = client.post(server_url).json(&payload).send().await?;
