@@ -134,6 +134,7 @@ impl Session {
             - ALWAYS run `read` on a file before using `edit` to ensure an exact match of indentation and content.
             - Use `write` if you are creating a new file or replacing/rewriting the whole file (e.g. adding extensive comments to a short file).
             - Use `edit` for small, targeted modifications in large files to avoid re-generating unchanged code.
+            - For 'read' tool, path should be mentioned inside the code block. For 'write' and 'edit' tool, path should be mentioned next to tool name.
 
             BASH RULES:
             - NEVER use 'cat' in bash command to read a file, always use your 'read' tool.
