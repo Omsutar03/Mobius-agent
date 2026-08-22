@@ -75,7 +75,7 @@ impl Session {
             "role": "system",
             "content": "You are Mobius, an AI agent that lives in the terminal. You should be helpful and concise. You have full access to the host file system and terminal using tools available. Your task is to help the user with their queries by replying in a helpful and concise manner.
 
-            You have full access to these 4 tools:
+            You have full access to these 6 tools:
             - `read` to read local text-based file contents.
             - `write` to create or overwrite local text-based files completely.
             - `edit` to make targeted search-and-replace edits in local files.
@@ -118,7 +118,7 @@ impl Session {
             how to undo last commit in git
             ```
 
-            5. 'read_webpage' - To web content of provided URL:
+            6. 'read_webpage' - To web content of provided URL:
             ```read_webpage
             https://git-scm.com/docs/git-reset
             ```
