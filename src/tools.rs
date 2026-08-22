@@ -4,27 +4,41 @@ use tokio::fs;
 use tokio::process::Command;
 use tokio::time::timeout;
 
+use html_to_markdown_rs::convert;
+use readabilityrs::{Readability, ReadabilityOptions};
+use scraper::{Html, Selector};
+
 #[derive(Debug, PartialEq)]
 pub enum ToolCall {
-    // Direct bash/shell command execution (e.g. `bash ls -la`)
+    // Direct bash/shell command execution
     Shell(String),
 
-    // File reading tool (e.g. `read src/main.rs`)
+    // File reading tool
     Read {
         path: String,
     },
 
-    // File creation and overwrite (e.g. `write test1.py print("Hello Word!")`)
+    // File creation and overwrite tool
     Write {
         path: String,
         content: String,
     },
 
-    // File edit (e.g. `edit test1.py print("Hello Word!") print("Hello World!")`)
+    // File edit tool
     Edit {
         path: String,
         old_text: String,
         new_text: String,
+    },
+
+    // Seach the web with query
+    WebSearch {
+        query: String,
+    },
+
+    // Reads web-page tool
+    ReadWebPage {
+        url: String,
     },
 }
 
@@ -154,6 +168,32 @@ pub fn parse_tool_call(text: &str) -> Option<ToolCall> {
                         old_text,
                         new_text,
                     });
+                }
+            } else if header == "web_search" {
+                let mut query = String::new();
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    query.push_str(line.trim());
+                    query.push(' '); // allow multi-line queries just in case
+                }
+
+                let final_query = query.trim().to_string();
+                if !final_query.is_empty() {
+                    return Some(ToolCall::WebSearch { query: final_query });
+                }
+            } else if header == "read_webpage" {
+                let mut url = String::new();
+                for line in lines.by_ref() {
+                    if line.trim().starts_with("```") {
+                        break;
+                    }
+                    url.push_str(line.trim());
+                }
+
+                if !url.is_empty() {
+                    return Some(ToolCall::ReadWebPage { url });
                 }
             }
         }
@@ -342,4 +382,130 @@ pub async fn execute_edit_command(path: &str, old_text: &str, new_text: &str) ->
             expanded_path, e
         ),
     }
+}
+
+pub async fn execute_web_search_command(query: &str) -> String {
+    let encoded_query = urlencoding::encode(query);
+    let url = format!("https://html.duckduckgo.com/html/?q={}", encoded_query);
+
+    // Properly initialized client with global user agent
+    let client = match reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => return format!("❌ [WebSearch Error]: Failed to build HTTP client: {}", e),
+    };
+
+    let resp = match client.get(&url).send().await {
+        Ok(r) => match r.text().await {
+            Ok(text) => text,
+            Err(e) => return format!("❌ [WebSearch Error]: Failed to read response body: {}", e),
+        },
+        Err(e) => return format!("❌ [WebSearch Error]: Request failed: {}", e),
+    };
+
+    let document = Html::parse_document(&resp);
+
+    let result_selector = Selector::parse(".result").unwrap();
+    let title_selector = Selector::parse(".result__title").unwrap();
+    let snippet_selector = Selector::parse(".result__snippet").unwrap();
+    let url_selector = Selector::parse(".result__url").unwrap();
+
+    let mut summary = format!("[Search Results for '{}']\n\n", query);
+    let mut count = 0;
+
+    for element in document.select(&result_selector).take(5) {
+        let title = element
+            .select(&title_selector)
+            .next()
+            .map_or("No Title".to_string(), |el| {
+                el.text().collect::<Vec<_>>().join("").trim().to_string()
+            });
+        let snippet = element
+            .select(&snippet_selector)
+            .next()
+            .map_or("No Snippet".to_string(), |el| {
+                el.text().collect::<Vec<_>>().join("").trim().to_string()
+            });
+        let raw_url = element
+            .select(&url_selector)
+            .next()
+            .map_or("".to_string(), |el| {
+                el.text().collect::<Vec<_>>().join("").trim().to_string()
+            });
+
+        if !title.is_empty() {
+            count += 1;
+            summary.push_str(&format!(
+                "{}. {}\n   URL: {}\n   Snippet: {}\n\n",
+                count, title, raw_url, snippet
+            ));
+        }
+    }
+
+    if count == 0 {
+        return format!(
+            "❌ [WebSearch Error]: No search results found for query '{}'",
+            query
+        );
+    }
+
+    summary
+}
+
+pub async fn execute_read_webpage_command(url: &str) -> String {
+    let clean_url = url.trim();
+
+    // 1. Fetch raw HTML
+    let raw_html = match reqwest::get(clean_url).await {
+        Ok(res) => match res.text().await {
+            Ok(text) => text,
+            Err(e) => {
+                return format!(
+                    "❌ [ReadPage Error]: Failed to read text from {}. Reason: {}",
+                    clean_url, e
+                );
+            }
+        },
+        Err(e) => {
+            return format!(
+                "❌ [ReadPage Error]: Failed to reach {}. Reason: {}",
+                clean_url, e
+            );
+        }
+    };
+
+    // 2. Pass 1: Readability Boilerplate Removal
+    let options = ReadabilityOptions::default();
+    let readability = match Readability::new(&raw_html, Some(clean_url), Some(options)) {
+        Ok(r) => r,
+        Err(e) => {
+            return format!(
+                "❌ [ReadPage Error]: Readability initialization failed: {}",
+                e
+            );
+        }
+    };
+
+    if let Some(article) = readability.parse() {
+        if let Some(clean_html) = article.content {
+            // 3. Pass 2: Convert pure HTML content left behing to Markdown
+            match convert(&clean_html, None) {
+                Ok(conversion_result) => {
+                    if let Some(markdown) = conversion_result.content {
+                        let mut output = format!("---[Page Content for {}]---\n\n", clean_url);
+                        output.push_str(&markdown);
+
+                        return output;
+                    }
+                }
+                Err(e) => return format!("❌ [ReadPage Error]: Markdown conversion failed: {}", e),
+            }
+        }
+    }
+
+    // Fallback if readability strips everything (e.g., heavily JS rendered sites)
+    "❌ [ReadPage Error]: Could not identify or extract main content block from this page."
+        .to_string()
 }

@@ -206,6 +206,30 @@ async fn handle_connection(
                     );
                     session.add_message("user", &tool_feedback);
                 }
+                tools::ToolCall::WebSearch { query } => {
+                    let status_msg = format!("\x1B[34m🔍 [Searching Web]:\x1B[0m {}\n", query);
+                    stream.write_all(status_msg.as_bytes()).await?;
+
+                    let output_str = tools::execute_web_search_command(&query).await;
+
+                    let tool_feedback = format!(
+                        "{}\n\nPlease review these results. If you need more details from a specific result, use the 'read_webpage' tool on its URL.",
+                        output_str
+                    );
+                    session.add_message("user", &tool_feedback);
+                }
+                tools::ToolCall::ReadWebPage { url } => {
+                    let status_msg = format!("\x1B[36m🌐 [Reading Webpage]:\x1B[0m {}\n", url);
+                    stream.write_all(status_msg.as_bytes()).await?;
+
+                    let output_str = tools::execute_read_webpage_command(&url).await;
+
+                    let tool_feedback = format!(
+                        "{}\n\nPlease analyze this page content to answer the user's question.",
+                        output_str
+                    );
+                    session.add_message("user", &tool_feedback);
+                }
             }
 
             max_tool_turns -= 1;
