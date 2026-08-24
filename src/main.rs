@@ -48,7 +48,6 @@ async fn main() {
         let mut stream = match UnixStream::connect(&socket_path).await {
             Ok(s) => s,
             Err(_) => {
-                // If it exists but can't connect, it might be a dead ghost file
                 let _ = std::fs::remove_file(socket_path);
                 println!("🧹 Cleaned up unresponsive daemon socket.");
                 return;
@@ -59,7 +58,8 @@ async fn main() {
             ppid: std::os::unix::process::parent_id(),
             prompt: String::new(),
             thinking_level_override: None,
-            shutdown: true, // Triggers the daemon shutdown!
+            shutdown: true,
+            record_history: None,
         };
 
         let json_payload = serde_json::to_string(&request).expect("Failed to serialize request");
@@ -72,25 +72,43 @@ async fn main() {
         return;
     }
 
-    // 4. CLIENT MODE (Querying flags without a prompt)
+    // 4. HIDDEN RECORD HISTORY MODE (Used by shell hook)
+    if let Some(ref cmd) = args.record_cmd {
+        let ppid = args
+            .override_pid
+            .unwrap_or_else(|| std::os::unix::process::parent_id());
+
+        // Read command output from stdin asynchronously
+        let mut output = String::new();
+        let mut stdin = tokio::io::stdin();
+        let _ = stdin.read_to_string(&mut output).await;
+
+        // Save directly to disk (bypasses daemon requirement)
+        let mut history = session::TerminalHistory::load(ppid);
+        history.push_entry(ppid, cmd.clone(), output);
+        return;
+    }
+
+    // 5. CLIENT MODE (Querying flags without a prompt)
     if args.prompt.is_empty() {
         handle_queries(&args);
         return;
     }
 
-    // 5. CLIENT MODE (Processing a prompt)
+    // 6. CLIENT MODE (Processing a prompt)
+    let ppid = args
+        .override_pid
+        .unwrap_or_else(|| std::os::unix::process::parent_id());
     let socket_path = daemon::get_socket_path();
 
-    // Attempt to connect immediately to check if an active daemon is running
+    // Connect or auto-spawn daemon
     let mut stream = match UnixStream::connect(&socket_path).await {
-        Ok(s) => s, // Connection succeeded: Active daemon found
+        Ok(s) => s,
         Err(_) => {
-            // Connection failed: Clean up dead socket file if it exists
             if socket_path.exists() {
                 let _ = std::fs::remove_file(&socket_path);
             }
 
-            // Spawn background daemon process
             let exe = env::current_exe().expect("Failed to get current executable path");
             if let Err(e) = Command::new(exe)
                 .arg("--daemon-mode")
@@ -102,7 +120,6 @@ async fn main() {
                 std::process::exit(1);
             }
 
-            // Poll-retry connection while the newly spawned daemon binds to socket[cite: 5]
             let mut connected_stream = None;
             for _ in 0..20 {
                 sleep(Duration::from_millis(50)).await;
@@ -112,7 +129,6 @@ async fn main() {
                 }
             }
 
-            // Unwrap stream or fail if daemon couldn't bind in 1 second
             match connected_stream {
                 Some(s) => s,
                 None => {
@@ -123,38 +139,53 @@ async fn main() {
         }
     };
 
-    // Prepare the JSON payload
+    // Inject history if requested
+    let mut final_prompt = args.prompt;
+    if let Some(n) = args.last_lines {
+        let history = session::TerminalHistory::load(ppid);
+        let last_n = history.get_last_n(n);
+
+        if !last_n.is_empty() {
+            let mut ctx = format!("\n\n[Context: Last {} Terminal Commands]\n", n);
+            for entry in last_n {
+                ctx.push_str(&format!("$ {}\n{}\n", entry.command, entry.output));
+            }
+            final_prompt.push_str(&ctx);
+        } else {
+            eprintln!(
+                "⚠️ Warning: No recorded history found for session PID {}.",
+                ppid
+            );
+        }
+    }
+
     let thinking_level_override = match args.thinking_level {
-        Some(FlagAction::Set(val)) => Some(val), // If the flag exists (Some), AND its action is Set, extract 'val'
-        _ => None, // If it is anything else (None, or a different FlagAction variant), return None
+        Some(FlagAction::Set(val)) => Some(val),
+        _ => None,
     };
 
     let request = IpcRequest {
-        ppid: std::os::unix::process::parent_id(), // Grab the terminal tab's Process ID
-        prompt: args.prompt,
+        ppid,
+        prompt: final_prompt,
         thinking_level_override,
         shutdown: false,
+        record_history: None,
     };
 
     let json_payload = serde_json::to_string(&request).expect("Failed to serialize request");
 
-    // Send the payload to the daemon over the socket
     if let Err(e) = stream.write_all(json_payload.as_bytes()).await {
         eprintln!("❌ Error sending request to daemon: {}", e);
         return;
     }
 
-    // Shut down the *write* half of the client socket.
-    // This tells the daemon "I'm done sending the request", but keeps the read half open.
     let _ = stream.shutdown().await;
 
-    // Listen for the daemon streaming the response back to us
     let mut buffer = [0; 4096];
     loop {
         match stream.read(&mut buffer).await {
-            Ok(0) => break, // EOF: Daemon finished streaming and closed the connection
+            Ok(0) => break,
             Ok(n) => {
-                // Print the raw ANSI-colored bytes directly to the terminal stdout
                 io::stdout().write_all(&buffer[..n]).unwrap();
                 io::stdout().flush().unwrap();
             }
@@ -166,17 +197,32 @@ async fn main() {
     }
 }
 
-// Helper function to handle metadata queries (-t, -m)
 fn handle_queries(args: &CliArgs) {
-    let ppid = std::os::unix::process::parent_id();
+    let ppid = args
+        .override_pid
+        .unwrap_or_else(|| std::os::unix::process::parent_id());
 
-    // `-n` or `--new-s` flag
     if args.new_session {
         session::Session::clear(ppid);
         println!("🧹 Initialized new session.");
     }
 
-    // `-t` or `--thinking` flag
+    if let Some(n) = args.last_lines {
+        let history = session::TerminalHistory::load(ppid);
+        let last_n = history.get_last_n(n);
+
+        println!("Terminal History (-l / --last): [PID {}]", ppid);
+        if last_n.is_empty() {
+            println!("  ⚠️ No history recorded yet.");
+        } else {
+            for (i, entry) in last_n.iter().enumerate() {
+                println!("\n--- [{}] $ {} ---", i + 1, entry.command);
+                println!("{}", entry.output.trim());
+            }
+        }
+        return;
+    }
+
     if let Some(ref action) = args.thinking_level {
         let mut session = session::Session::load(ppid);
 
@@ -190,7 +236,6 @@ fn handle_queries(args: &CliArgs) {
                 );
             }
             cli::FlagAction::Set(val) => {
-                // Validate if the input string is a recognized level
                 if engine::ThinkingLevel::from_str(val).is_some() {
                     session.thinking_level = Some(val.clone());
                     session.save(ppid);
@@ -209,7 +254,6 @@ fn handle_queries(args: &CliArgs) {
         return;
     }
 
-    // '-m' or '--model' flag
     match &args.model {
         Some(FlagAction::Query) => {
             println!("Model (-m / --model)             : [QUERY MODE]");

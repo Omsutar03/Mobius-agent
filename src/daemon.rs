@@ -80,6 +80,14 @@ async fn handle_connection(
 
     let request: IpcRequest = serde_json::from_slice(&buffer)?;
 
+    // --- HISTORY RECORDING LOGIC ---
+    if let Some(entry) = request.record_history {
+        let mut history = crate::session::TerminalHistory::load(request.ppid);
+        history.push_entry(request.ppid, entry.command, entry.output);
+        let _ = stream.write_all(b"OK").await;
+        return Ok(());
+    }
+
     // --- SHUTDOWN LOGIC ---
     if request.shutdown {
         let socket_path = get_socket_path();

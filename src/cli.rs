@@ -16,6 +16,8 @@ pub struct CliArgs {
     pub model: Option<FlagAction>,
     pub last_lines: Option<usize>,
     pub prompt: String,
+    pub record_cmd: Option<String>, // Hidden flag
+    pub override_pid: Option<u32>,  // Hidden flag
 }
 
 impl CliArgs {
@@ -35,6 +37,10 @@ impl CliArgs {
         let last_lines = par
             .opt_value_from_str(["-l", "--last"])
             .map_err(|e| e.to_string())?; // To let mobius access "N" last i/o of terminal
+
+        // Extract hidden flags
+        let record_cmd: Option<String> = par.opt_value_from_str("--record").unwrap_or(None);
+        let override_pid: Option<u32> = par.opt_value_from_str("--pid").unwrap_or(None);
 
         // 2. Finish parsing to consume remaining args as prompt
         let remaining_args = par.finish();
@@ -57,6 +63,8 @@ impl CliArgs {
                 model: None,
                 last_lines: None,
                 prompt: String::new(),
+                record_cmd,
+                override_pid,
             });
         }
 
@@ -115,6 +123,8 @@ impl CliArgs {
             model,
             last_lines,
             prompt,
+            record_cmd,
+            override_pid,
         })
     }
 }
