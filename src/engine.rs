@@ -1,5 +1,4 @@
 use reqwest::Client;
-use serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 
@@ -43,28 +42,14 @@ impl ThinkingLevel {
 
 pub async fn ask_mobius(
     client: &Client,
-    server_url: &str,
+    engine: &crate::inferences::InferenceEngine,
+    model_name: &str,
     messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
     stream: &mut UnixStream,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let (enable_thinking, effort_str) = thinking_level.to_params();
-
-    // ALWAYS pass chat_template_kwargs so llama-server explicitly receives enable_thinking: false
-    let payload = json!({
-        "messages": messages_payload,
-        "stream": true,
-        "chat_template_kwargs": {
-            "enable_thinking": enable_thinking,
-            "reasoning_effort": effort_str
-        },
-        "reasoning_effort": effort_str,
-        "temperature": 0.1,
-        "min_p": 0.05,
-        "top_p": 0.9,
-        "presence_penalty": 0.0,
-        "frequency_penalty": 0.0
-    });
+    let server_url = engine.get_url();
+    let payload = engine.build_payload(messages_payload, thinking_level, model_name);
 
     let mut response = client.post(server_url).json(&payload).send().await?;
     let status = response.status();

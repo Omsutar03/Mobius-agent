@@ -16,6 +16,8 @@ pub struct Session {
     pub messages: Vec<Message>,
     #[serde(default)]
     pub thinking_level: Option<String>,
+    #[serde(default)]
+    pub model_provider: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

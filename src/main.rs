@@ -1,4 +1,3 @@
-// TODO: `-l` or `--last` flag
 // TODO: `-m` or `--model` flag
 // TODO: `--help` flag
 // TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
@@ -6,6 +5,7 @@
 mod cli;
 mod daemon;
 mod engine;
+mod inferences;
 mod ipc;
 mod session;
 mod tools;
@@ -97,7 +97,7 @@ async fn main() {
 
     // 5. CLIENT MODE (Querying flags without a prompt)
     if args.prompt.is_empty() {
-        handle_queries(&args);
+        handle_queries(&args).await;
         return;
     }
 
@@ -203,7 +203,7 @@ async fn main() {
     }
 }
 
-fn handle_queries(args: &CliArgs) {
+async fn handle_queries(args: &CliArgs) {
     let ppid = args
         .override_pid
         .unwrap_or_else(|| std::os::unix::process::parent_id());
@@ -262,9 +262,51 @@ fn handle_queries(args: &CliArgs) {
 
     match &args.model {
         Some(FlagAction::Query) => {
+            let ppid = args
+                .override_pid
+                .unwrap_or_else(|| std::os::unix::process::parent_id());
+            let session = session::Session::load(ppid);
+            let current_provider = session.model_provider.as_deref().unwrap_or("llama");
+
             println!("Model (-m / --model)             : [QUERY MODE]");
-            println!("  🤖 Current Model: local (Default)");
-            println!("  🤖 Available Options: local, gemini, claude");
+            println!("  💡 Current Provider            : {}", current_provider);
+            println!("  🔍 Scanning local ports for active inference engines...\n");
+            let active_models = crate::inferences::discover_local_models().await;
+
+            if active_models.is_empty() {
+                println!(
+                    "  ⚠️ No active local models found. Start Ollama, llama.cpp, or LM Studio first."
+                );
+            } else {
+                for (i, info) in active_models.iter().enumerate() {
+                    // Check if this engine matches the currently configured session provider
+                    let is_current = match (current_provider, &info.engine) {
+                        ("ollama", crate::inferences::InferenceEngine::Ollama) => true,
+                        ("lmstudio", crate::inferences::InferenceEngine::GenericOpenAI) => true,
+                        ("llama", crate::inferences::InferenceEngine::LlamaCpp) => true,
+                        _ => false,
+                    };
+
+                    let active_tag = if is_current {
+                        " \x1B[32m[Active]\x1B[0m"
+                    } else {
+                        ""
+                    };
+                    println!("  🟢 [{}] {}{}", i + 1, info.display_name, active_tag);
+                }
+            }
+        }
+        Some(cli::FlagAction::Set(val)) => {
+            let ppid = args
+                .override_pid
+                .unwrap_or_else(|| std::os::unix::process::parent_id());
+            let mut session = session::Session::load(ppid);
+            session.model_provider = Some(val.to_lowercase());
+            session.save(ppid);
+            println!(
+                "✅ Model provider set to '{}' for current session (PID {}).",
+                val, ppid
+            );
         }
         _ => {}
     }

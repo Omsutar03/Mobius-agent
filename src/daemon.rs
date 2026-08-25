@@ -122,7 +122,22 @@ async fn handle_connection(
     // 3. Append the user's new prompt
     session.add_message("user", &request.prompt);
 
-    let server_url = "http://localhost:8080/v1/chat/completions";
+    // Resolve active Inference Engine
+    let provider_str = session.model_provider.as_deref().unwrap_or("llama");
+    let engine = match provider_str {
+        "ollama" => crate::inferences::InferenceEngine::Ollama,
+        "lmstudio" => crate::inferences::InferenceEngine::GenericOpenAI,
+        _ => crate::inferences::InferenceEngine::LlamaCpp,
+    };
+
+    // Dynamically fetch the active model name loaded on this engine's port
+    let active_models = crate::inferences::discover_local_models().await;
+    let model_name = active_models
+        .iter()
+        .find(|m| m.engine == engine)
+        .map(|m| m.model_name.clone())
+        .unwrap_or_else(|| "default".to_string());
+
     let mut max_tool_turns = 5;
 
     // 4. Multi-turn agent execution loop
@@ -132,7 +147,8 @@ async fn handle_connection(
         // Query LLM and stream chunk response
         let response = match ask_mobius(
             &client,
-            server_url,
+            &engine,
+            &model_name,
             messages_payload,
             thinking_level,
             stream,

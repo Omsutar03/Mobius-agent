@@ -9,7 +9,7 @@ pub enum FlagAction {
 
 #[derive(Debug)]
 pub struct CliArgs {
-    pub daemon_mode: bool,
+    pub daemon_mode: bool, // Hidden flag
     pub stop_daemon: bool,
     pub new_session: bool,
     pub thinking_level: Option<FlagAction>,
