@@ -74,18 +74,24 @@ async fn main() {
 
     // 4. HIDDEN RECORD HISTORY MODE (Used by shell hook)
     if let Some(ref cmd) = args.record_cmd {
-        let ppid = args
-            .override_pid
-            .unwrap_or_else(|| std::os::unix::process::parent_id());
+        let socket_path = daemon::get_socket_path();
 
-        // Read command output from stdin asynchronously
-        let mut output = String::new();
-        let mut stdin = tokio::io::stdin();
-        let _ = stdin.read_to_string(&mut output).await;
+        // Only record history if the daemon is active and listening
+        if UnixStream::connect(&socket_path).await.is_ok() {
+            let ppid = args
+                .override_pid
+                .unwrap_or_else(|| std::os::unix::process::parent_id());
 
-        // Save directly to disk (bypasses daemon requirement)
-        let mut history = session::TerminalHistory::load(ppid);
-        history.push_entry(ppid, cmd.clone(), output);
+            // Read command output from stdin asynchronously
+            let mut output = String::new();
+            let mut stdin = tokio::io::stdin();
+            let _ = stdin.read_to_string(&mut output).await;
+
+            // Save directly to disk (bypasses daemon requirement)
+            let mut history = session::TerminalHistory::load(ppid);
+            history.push_entry(ppid, cmd.clone(), output);
+        }
+
         return;
     }
 
