@@ -40,6 +40,13 @@ impl ThinkingLevel {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TokenUsage {
+    pub prompt_tokens: usize,
+    pub completion_tokens: usize,
+    pub total_tokens: usize,
+}
+
 pub async fn ask_mobius(
     client: &Client,
     engine: &crate::inferences::InferenceEngine,
@@ -47,7 +54,7 @@ pub async fn ask_mobius(
     messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
     stream: &mut UnixStream,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(String, TokenUsage), Box<dyn std::error::Error + Send + Sync>> {
     let server_url = engine.get_url();
     let payload = engine.build_payload(messages_payload, thinking_level, model_name);
 
@@ -61,6 +68,7 @@ pub async fn ask_mobius(
 
     let mut full_text = String::new(); // Accumulates ALL delta.content
     let mut buffer = String::new();
+    let mut usage = TokenUsage::default();
 
     let mut printed_mobius_prefix = false;
     let mut has_thought = false;
@@ -80,48 +88,69 @@ pub async fn ask_mobius(
                 }
 
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_data) {
-                    let delta = &parsed["choices"][0]["delta"];
-
-                    // 1. Handle API's native reasoning_content (DeepSeek / standard API)
-                    if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str())
-                    {
-                        if !reasoning.is_empty() {
-                            has_thought = true;
-                            let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
-                            stream.write_all(formatted.as_bytes()).await?;
-                            stream.flush().await?;
+                    // 1. Extract usage metrics when the engine sends them
+                    if let Some(usage_obj) = parsed.get("usage") {
+                        if let Some(p) = usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()) {
+                            usage.prompt_tokens = p as usize;
+                        }
+                        if let Some(c) = usage_obj.get("completion_tokens").and_then(|v| v.as_u64())
+                        {
+                            usage.completion_tokens = c as usize;
+                        }
+                        if let Some(t) = usage_obj.get("total_tokens").and_then(|v| v.as_u64()) {
+                            usage.total_tokens = t as usize;
                         }
                     }
+                    // 2. Safe indexing using `.get(0)` to prevent panics on empty 'choices' arrays
+                    if let Some(first_choice) = parsed
+                        .get("choices")
+                        .and_then(|c| c.as_array())
+                        .and_then(|arr| arr.first())
+                    {
+                        let delta = &first_choice["delta"];
 
-                    // 2. Handle standard content (which may contain inline <think> tags)
-                    if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
-                        full_text.push_str(content); // Save ALL content to be cleaned later
-
-                        if content.contains("<think>") || content.contains("<thinking>") {
-                            in_thinking_block = true;
+                        // 2a. Handle API's native reasoning_content (DeepSeek / standard API)
+                        if let Some(reasoning) =
+                            delta.get("reasoning_content").and_then(|v| v.as_str())
+                        {
+                            if !reasoning.is_empty() {
+                                has_thought = true;
+                                let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
+                                stream.write_all(formatted.as_bytes()).await?;
+                                stream.flush().await?;
+                            }
                         }
 
-                        if in_thinking_block {
-                            has_thought = true;
-                            let formatted = format!("\x1B[90m{}\x1B[0m", content);
-                            stream.write_all(formatted.as_bytes()).await?;
-                            stream.flush().await?;
+                        // 2b. Handle standard content (which may contain inline <think> tags)
+                        if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
+                            full_text.push_str(content); // Save ALL content to be cleaned later
 
-                            if content.contains("</think>") || content.contains("</thinking>") {
-                                in_thinking_block = false;
+                            if content.contains("<think>") || content.contains("<thinking>") {
+                                in_thinking_block = true;
                             }
-                        } else {
-                            if !printed_mobius_prefix {
-                                if has_thought {
-                                    stream.write_all(b"\n").await?;
-                                }
-                                stream.write_all(b"\x1B[32mMobius:\x1B[0m ").await?;
+
+                            if in_thinking_block {
+                                has_thought = true;
+                                let formatted = format!("\x1B[90m{}\x1B[0m", content);
+                                stream.write_all(formatted.as_bytes()).await?;
                                 stream.flush().await?;
-                                printed_mobius_prefix = true;
-                            }
 
-                            stream.write_all(content.as_bytes()).await?;
-                            stream.flush().await?;
+                                if content.contains("</think>") || content.contains("</thinking>") {
+                                    in_thinking_block = false;
+                                }
+                            } else {
+                                if !printed_mobius_prefix {
+                                    if has_thought {
+                                        stream.write_all(b"\n").await?;
+                                    }
+                                    stream.write_all(b"\x1B[32mMobius:\x1B[0m ").await?;
+                                    stream.flush().await?;
+                                    printed_mobius_prefix = true;
+                                }
+
+                                stream.write_all(content.as_bytes()).await?;
+                                stream.flush().await?;
+                            }
                         }
                     }
                 }
@@ -135,7 +164,7 @@ pub async fn ask_mobius(
     // 3. Clean up any inline thinking blocks before saving text to history / passing to tool parser
     let final_cleaned_text = clean_thinking_blocks(&full_text);
 
-    Ok(final_cleaned_text)
+    Ok((final_cleaned_text, usage))
 }
 
 // Helper function to safely strip thinking blocks so they don't pollute chat history

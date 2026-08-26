@@ -12,6 +12,7 @@ pub struct CliArgs {
     pub daemon_mode: bool, // Hidden flag
     pub stop_daemon: bool,
     pub new_session: bool,
+    pub tokens: bool,
     pub thinking_level: Option<FlagAction>,
     pub model: Option<FlagAction>,
     pub last_lines: Option<usize>,
@@ -32,6 +33,7 @@ impl CliArgs {
 
         // 1. Extract all flags
         let new_session = par.contains(["-n", "--new-s"]); // For new chat session in same TTY session.
+        let tokens = par.contains("--tokens"); // For checking token count
         let thinking_level = parse_flag_action(&mut par, ["-t", "--thinking"])?; // For toggling thinking level/mode
         let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For checking current model or changing model
         let last_lines = par
@@ -59,6 +61,7 @@ impl CliArgs {
                 daemon_mode,
                 stop_daemon: false,
                 new_session: false,
+                tokens: false,
                 thinking_level: None,
                 model: None,
                 last_lines: None,
@@ -73,6 +76,7 @@ impl CliArgs {
         let flag_count = [
             stop_daemon,
             new_session,
+            tokens,
             thinking_level.is_some(),
             model.is_some(),
             last_lines.is_some(),
@@ -115,10 +119,19 @@ impl CliArgs {
             return Err("The model flag (-m / --model) is strictly for querying or switching models. Do not pass a prompt with it.".to_string());
         }
 
+        // F: --tokens MUST be standalone
+        if tokens && has_prompt {
+            return Err(
+                "The `--tokens` flag must be used on its own. Do not pass a prompt with it."
+                    .to_string(),
+            );
+        }
+
         Ok(CliArgs {
             daemon_mode,
             stop_daemon,
             new_session,
+            tokens,
             thinking_level,
             model,
             last_lines,

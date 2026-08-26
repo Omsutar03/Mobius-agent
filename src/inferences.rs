@@ -30,10 +30,11 @@ impl InferenceEngine {
 
         match self {
             InferenceEngine::LlamaCpp => {
-                // llama.cpp expects chat_template_kwargs
+                // llama.cpp expects chat_template_kwargs for some models
                 json!({
                     "messages": messages,
                     "stream": true,
+                    "stream_options": { "include_usage": true },
                     "chat_template_kwargs": {
                         "enable_thinking": enable_thinking,
                         "reasoning_effort": effort_str
@@ -43,12 +44,22 @@ impl InferenceEngine {
                     "top_p": 0.9
                 })
             }
-            InferenceEngine::Ollama | InferenceEngine::GenericOpenAI => {
+            InferenceEngine::Ollama => {
+                // Ollama uses MODELFILE for params
+                json!({
+                    "model": model_name,
+                    "messages": messages,
+                    "stream": true,
+                    "stream_options": { "include_usage": true },
+                })
+            }
+            InferenceEngine::GenericOpenAI => {
                 // Standard OpenAI spec
                 json!({
                     "model": model_name,
                     "messages": messages,
                     "stream": true,
+                    "stream_options": { "include_usage": true },
                     "temperature": 0.1,
                     "min_p": 0.05,
                     "top_p": 0.9
@@ -117,4 +128,73 @@ pub async fn discover_local_models() -> Vec<ModelInfo> {
     }
 
     active_models
+}
+
+// Drop this function at the bottom of inferences.rs
+pub async fn get_context_window(
+    client: &Client,
+    engine: &InferenceEngine,
+    model_name: &str,
+) -> usize {
+    match engine {
+        InferenceEngine::LlamaCpp => {
+            if let Ok(res) = client.get("http://localhost:8080/v1/models").send().await {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                        for model in data {
+                            if model.get("id").and_then(|i| i.as_str()) == Some(model_name) {
+                                if let Some(n_ctx) = model
+                                    .get("meta")
+                                    .and_then(|m| m.get("n_ctx"))
+                                    .and_then(|n| n.as_u64())
+                                {
+                                    return n_ctx as usize;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            8192 // Fallback
+        }
+        InferenceEngine::Ollama => {
+            if let Ok(res) = client
+                .post("http://localhost:11434/api/show")
+                .json(&serde_json::json!({"model": model_name}))
+                .send()
+                .await
+            {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(info) = json.get("model_info").and_then(|i| i.as_object()) {
+                        for (k, v) in info {
+                            if k.ends_with(".context_length") {
+                                if let Some(n_ctx) = v.as_u64() {
+                                    return n_ctx as usize;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            4096 // Ollama default fallback
+        }
+        InferenceEngine::GenericOpenAI => {
+            if let Ok(res) = client.get("http://localhost:1234/v1/models").send().await {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(data) = json.get("data").and_then(|d| d.as_array()) {
+                        for model in data {
+                            if model.get("id").and_then(|i| i.as_str()) == Some(model_name) {
+                                if let Some(n_ctx) =
+                                    model.get("context_length").and_then(|n| n.as_u64())
+                                {
+                                    return n_ctx as usize;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            8192 // Fallback
+        }
+    }
 }

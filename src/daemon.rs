@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::engine::{ThinkingLevel, ask_mobius};
+use crate::inferences::get_context_window;
 use crate::ipc::IpcRequest;
 use crate::tools;
 
@@ -145,7 +146,7 @@ async fn handle_connection(
         let messages_payload = session.get_api_messages();
 
         // Query LLM and stream chunk response
-        let response = match ask_mobius(
+        let (response, usage) = match ask_mobius(
             &client,
             &engine,
             &model_name,
@@ -165,6 +166,11 @@ async fn handle_connection(
                 return Err(err_str.into());
             }
         };
+
+        // --- Persist the token usage ---
+        session.last_prompt_tokens = usage.prompt_tokens;
+        session.last_completion_tokens = usage.completion_tokens;
+        session.context_window = get_context_window(&client, &engine, &model_name).await;
 
         // Save model's reponse to history
         session.add_message("assistant", &response);

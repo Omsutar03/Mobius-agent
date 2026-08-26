@@ -18,6 +18,12 @@ pub struct Session {
     pub thinking_level: Option<String>,
     #[serde(default)]
     pub model_provider: Option<String>,
+    #[serde(default)]
+    pub last_prompt_tokens: usize,
+    #[serde(default)]
+    pub last_completion_tokens: usize,
+    #[serde(default)]
+    pub context_window: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
