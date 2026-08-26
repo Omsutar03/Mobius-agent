@@ -50,6 +50,7 @@ impl InferenceEngine {
                     "messages": messages,
                     "stream": true,
                     "temperature": 0.1,
+                    "min_p": 0.05,
                     "top_p": 0.9
                 })
             }

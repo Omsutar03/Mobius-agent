@@ -1,4 +1,3 @@
-// TODO: `-m` or `--model` flag
 // TODO: `--help` flag
 // TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
 // TODO: Load past conversations
