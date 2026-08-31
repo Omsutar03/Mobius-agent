@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -26,13 +27,22 @@ pub struct Session {
     pub context_window: usize,
 }
 
+#[derive(Clone)]
+pub struct SessionFile {
+    pub path: PathBuf,
+    pub filename: String,
+    pub is_active: bool,
+    pub preview: String,
+    pub modified: SystemTime,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TerminalHistory {
     pub entries: VecDeque<HistoryEntry>,
 }
 
 impl Session {
-    fn get_session_dir() -> PathBuf {
+    pub fn get_session_dir() -> PathBuf {
         let home = env::var("HOME").expect("Could not find HOME directory");
         let dir = PathBuf::from(home)
             .join(".local")
@@ -68,11 +78,117 @@ impl Session {
         fs::write(path, data).expect("Failed to write session file");
     }
 
-    /// Delete the session file (used when --new-s is passed)
+    /// Delete the session file
     pub fn clear(ppid: u32) {
         let path = Self::get_file_path(ppid);
         if path.exists() {
             let _ = fs::remove_file(path);
+        }
+    }
+
+    /// Safely archive the session instead of deleting it (unless it's empty)
+    pub fn archive_and_reset(ppid: u32) {
+        let path = Self::get_file_path(ppid);
+        if path.exists() {
+            let session = Self::load(ppid);
+            if !session.messages.is_empty() {
+                let dir = Self::get_session_dir();
+                let mut max_n = 0;
+                let prefix = format!("{}_h", ppid);
+
+                // Scan for highest _hN suffix
+                if let Ok(entries) = fs::read_dir(&dir) {
+                    for entry in entries.flatten() {
+                        let fname = entry.file_name().to_string_lossy().to_string();
+                        if fname.starts_with(&prefix) && fname.ends_with(".json") {
+                            if let Some(n_str) = fname
+                                .strip_prefix(&prefix)
+                                .and_then(|s| s.strip_suffix(".json"))
+                            {
+                                if let Ok(n) = n_str.parse::<u32>() {
+                                    max_n = max_n.max(n);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let archive_path = dir.join(format!("{}_h{}.json", ppid, max_n + 1));
+                let _ = fs::rename(&path, archive_path);
+            } else {
+                let _ = fs::remove_file(&path); // It's empty, just drop it
+            }
+        }
+        // Write a fresh clean state
+        Session::default().save(ppid);
+    }
+
+    /// Fetches and formats metadata of all chats for the TUI pane
+    pub fn list_all_sessions(current_ppid: u32) -> Vec<SessionFile> {
+        let dir = Self::get_session_dir();
+        let mut list = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let filename = entry.file_name().to_string_lossy().to_string();
+
+                // Exclude command history logs and non-json
+                if !filename.ends_with(".json") || filename.ends_with("_history.json") {
+                    continue;
+                }
+
+                let is_active = filename == format!("{}.json", current_ppid);
+                let modified = entry
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
+
+                // Try to extract a fast preview of the first user prompt
+                let preview = if let Ok(data) = fs::read_to_string(&path) {
+                    if let Ok(sess) = serde_json::from_str::<Session>(&data) {
+                        sess.messages
+                            .iter()
+                            .find(|m| m.role == "user")
+                            .map(|m| {
+                                m.content
+                                    .chars()
+                                    .take(45)
+                                    .collect::<String>()
+                                    .replace('\n', " ")
+                                    + "..."
+                            })
+                            .unwrap_or_else(|| "Empty session".to_string())
+                    } else {
+                        "Invalid data".to_string()
+                    }
+                } else {
+                    "Unreadable".to_string()
+                };
+
+                list.push(SessionFile {
+                    path,
+                    filename,
+                    is_active,
+                    preview,
+                    modified,
+                });
+            }
+        }
+
+        // Sort most recently modified to the top
+        list.sort_by(|a, b| b.modified.cmp(&a.modified));
+        list
+    }
+
+    /// Automatically archives the current dirty shell session before pulling the selected one
+    pub fn load_from_path_and_overwrite_current(target_path: &Path, current_ppid: u32) {
+        Self::archive_and_reset(current_ppid);
+
+        if let Ok(data) = fs::read_to_string(target_path) {
+            if let Ok(target_session) = serde_json::from_str::<Session>(&data) {
+                target_session.save(current_ppid);
+            }
         }
     }
 
@@ -83,6 +199,7 @@ impl Session {
             content: content.to_string(),
         });
     }
+    // 9. EXPLANATORY CODE BLOCKS: Do NOT put language tags (e.g. ```bash, ```rust, ```python, ```sh) on code blocks meant ONLY for explanation, as they trigger tool execution. Use plain triple backticks (```) with NO text after them.
 
     /// Formats the message history for the LLM API, injecting the System Prompt at the top
     pub fn get_api_messages(&self) -> serde_json::Value {

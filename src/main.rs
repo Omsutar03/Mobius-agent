@@ -8,6 +8,7 @@ mod inferences;
 mod ipc;
 mod session;
 mod tools;
+mod tui;
 
 use cli::{CliArgs, FlagAction};
 use ipc::IpcRequest;
@@ -30,13 +31,19 @@ async fn main() {
         }
     };
 
-    // 2. DAEMON MODE: If the hidden flag is present, start the server and block forever.
+    // 2. HELP FLAG: Print usage guide and exit immediately
+    if args.help {
+        cli::print_help();
+        return;
+    }
+
+    // 3. DAEMON MODE: If the hidden flag is present, start the server and block forever.
     if args.daemon_mode {
         daemon::start_daemon().await;
         return;
     }
 
-    // 3. STOP DAEMON
+    // 4. STOP DAEMON
     if args.stop_daemon {
         let socket_path = daemon::get_socket_path();
         if !socket_path.exists() {
@@ -71,7 +78,7 @@ async fn main() {
         return;
     }
 
-    // 4. HIDDEN RECORD HISTORY MODE (Used by shell hook)
+    // 5. HIDDEN RECORD HISTORY MODE (Used by shell hook)
     if let Some(ref cmd) = args.record_cmd {
         let socket_path = daemon::get_socket_path();
 
@@ -94,7 +101,7 @@ async fn main() {
         return;
     }
 
-    // 5. CLIENT MODE (Querying flags without a prompt)
+    // 6. CLIENT MODE (Querying flags without a prompt)
     if args.prompt.is_empty() {
         handle_queries(&args).await;
         return;
@@ -207,9 +214,51 @@ async fn handle_queries(args: &CliArgs) {
         .override_pid
         .unwrap_or_else(|| std::os::unix::process::parent_id());
 
+    // Update new session behavior to archive
     if args.new_session {
-        session::Session::clear(ppid);
-        println!("🧹 Initialized new session.");
+        session::Session::archive_and_reset(ppid);
+        println!("🧹 Archived previous messages and initialized a fresh session.");
+    }
+
+    // New Session Selector Logic
+    if let Some(ref action) = args.session {
+        match action {
+            cli::FlagAction::Query => {
+                let list = session::Session::list_all_sessions(ppid);
+                if list.is_empty() {
+                    println!("⚠️ No saved sessions found on disk.");
+                    return;
+                }
+
+                // Spawn TUI
+                match crate::tui::run_tui(list) {
+                    Ok(Some(selected_path)) => {
+                        session::Session::load_from_path_and_overwrite_current(
+                            &selected_path,
+                            ppid,
+                        );
+                        println!("✅ Session loaded successfully. You can now chat to continue.");
+                    }
+                    Ok(None) => {
+                        println!("🛑 Session selection cancelled.");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ TUI Error: {}", e);
+                    }
+                }
+            }
+            cli::FlagAction::Set(val) => {
+                // Allows bypass for power-users who want to load a known PID string without UI
+                let target_file = session::Session::get_session_dir().join(format!("{}.json", val));
+                if target_file.exists() {
+                    session::Session::load_from_path_and_overwrite_current(&target_file, ppid);
+                    println!("✅ Loaded session '{}' successfully.", val);
+                } else {
+                    eprintln!("❌ Error: Session file '{}.json' not found.", val);
+                }
+            }
+        }
+        return;
     }
 
     if args.tokens {

@@ -9,9 +9,11 @@ pub enum FlagAction {
 
 #[derive(Debug)]
 pub struct CliArgs {
+    pub help: bool,
     pub daemon_mode: bool, // Hidden flag
     pub stop_daemon: bool,
     pub new_session: bool,
+    pub session: Option<FlagAction>,
     pub tokens: bool,
     pub thinking_level: Option<FlagAction>,
     pub model: Option<FlagAction>,
@@ -25,6 +27,25 @@ impl CliArgs {
     pub fn parse() -> Result<Self, String> {
         let mut par = Arguments::from_env();
 
+        // Instant Help check (Bypasses all other validation checks)
+        let help = par.contains(["-h", "--help"]);
+        if help {
+            return Ok(CliArgs {
+                help: true,
+                daemon_mode: false,
+                stop_daemon: false,
+                new_session: false,
+                tokens: false,
+                thinking_level: None,
+                model: None,
+                session: None,
+                last_lines: None,
+                prompt: String::new(),
+                record_cmd: None,
+                override_pid: None,
+            });
+        }
+
         // Check for daemon mode first
         let daemon_mode = par.contains("--daemon-mode");
 
@@ -32,10 +53,12 @@ impl CliArgs {
         let stop_daemon = par.contains("--stop-daemon");
 
         // 1. Extract all flags
+        let help = par.contains(["-h", "--help"]);
         let new_session = par.contains(["-n", "--new-s"]); // For new chat session in same TTY session.
         let tokens = par.contains("--tokens"); // For checking token count
         let thinking_level = parse_flag_action(&mut par, ["-t", "--thinking"])?; // For toggling thinking level/mode
         let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For checking current model or changing model
+        let session = parse_flag_action(&mut par, ["-s", "--session"])?; // For loading past sessions into current one
         let last_lines = par
             .opt_value_from_str(["-l", "--last"])
             .map_err(|e| e.to_string())?; // To let mobius access "N" last i/o of terminal
@@ -58,9 +81,11 @@ impl CliArgs {
         // If running in daemon mode, bypass normal CLI validation
         if daemon_mode {
             return Ok(CliArgs {
+                help: false,
                 daemon_mode,
                 stop_daemon: false,
                 new_session: false,
+                session: None,
                 tokens: false,
                 thinking_level: None,
                 model: None,
@@ -80,6 +105,7 @@ impl CliArgs {
             thinking_level.is_some(),
             model.is_some(),
             last_lines.is_some(),
+            session.is_some(),
         ]
         .iter()
         .filter(|&&is_set| is_set)
@@ -127,10 +153,19 @@ impl CliArgs {
             );
         }
 
+        // G: MUST be standalone
+        if session.is_some() && has_prompt {
+            return Err(
+                "The `-s` / `--session` flag is strictly for querying or switching sessions. Do not pass a prompt with it.".to_string(),
+            );
+        }
+
         Ok(CliArgs {
+            help: false,
             daemon_mode,
             stop_daemon,
             new_session,
+            session,
             tokens,
             thinking_level,
             model,
@@ -155,4 +190,27 @@ fn parse_flag_action(
         }
         Err(err) => Err(err.to_string()),
     }
+}
+
+/// Print formatted ANSI color help menu
+pub fn print_help() {
+    println!(
+        "\x1B[1;36mMobius\x1B[0m - Terminal-based AI Agent Harness\n\n\
+        \x1B[1;33mUSAGE:\x1B[0m\n  \
+          mobius [FLAGS] [PROMPT]\n\n\
+        \x1B[1;33mFLAGS:\x1B[0m\n  \
+          \x1B[1;32m-h, --help\x1B[0m              Show this help message\n  \
+          \x1B[1;32m-n, --new-s\x1B[0m             Archive current session & start fresh\n  \
+          \x1B[1;32m-s, --session [PID]\x1B[0m     Launch interactive session browser (TUI) or switch session PID\n  \
+          \x1B[1;32m-m, --model [NAME]\x1B[0m      Query available local models or set provider (llama, ollama, lmstudio)\n  \
+          \x1B[1;32m-t, --thinking [LVL]\x1B[0m    Query or set thinking level (off, min, low, med, high, xhigh, max)\n  \
+          \x1B[1;32m-l, --last <N>\x1B[0m          Inject output of last N shell commands into prompt context\n  \
+          \x1B[1;32m--tokens\x1B[0m                Check current session context token usage\n  \
+          \x1B[1;32m--stop-daemon\x1B[0m           Stop the background Mobius daemon process\n\n\
+        \x1B[1;33mEXAMPLES:\x1B[0m\n  \
+          mobius \"Explain Tokio async channels\"\n  \
+          mobius -l 3 \"Why did my cargo build fail?\"\n  \
+          mobius -s\n  \
+          mobius -t high"
+    );
 }
