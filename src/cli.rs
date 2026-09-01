@@ -99,6 +99,7 @@ impl CliArgs {
         // 3. Security checks
         // A: Only one flag should be present at a time
         let flag_count = [
+            help,
             stop_daemon,
             new_session,
             tokens,
@@ -161,7 +162,7 @@ impl CliArgs {
         }
 
         Ok(CliArgs {
-            help: false,
+            help,
             daemon_mode,
             stop_daemon,
             new_session,
