@@ -62,7 +62,7 @@ impl InferenceEngine {
         // 3. Dynamically inject all keys from config.json into the payload
         if let Some(payload_obj) = payload.as_object_mut() {
             for (key, value) in engine_params {
-                payload_obj.insert(key.clone(), value.clone());
+                payload_obj.entry(key.clone()).or_insert(value.clone());
             }
         }
 
