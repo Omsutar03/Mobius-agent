@@ -25,12 +25,13 @@ impl InferenceEngine {
         messages: serde_json::Value,
         thinking_level: ThinkingLevel,
         model_name: &str,
+        config: &crate::config::MobiusConfig,
     ) -> serde_json::Value {
         let (enable_thinking, effort_str) = thinking_level.to_params();
 
-        match self {
+        // 1. Build the mandatory base payload
+        let mut payload = match self {
             InferenceEngine::LlamaCpp => {
-                // llama.cpp expects chat_template_kwargs for some models
                 json!({
                     "messages": messages,
                     "stream": true,
@@ -38,14 +39,10 @@ impl InferenceEngine {
                     "chat_template_kwargs": {
                         "enable_thinking": enable_thinking,
                         "reasoning_effort": effort_str
-                    },
-                    "temperature": 0.1,
-                    "min_p": 0.05,
-                    "top_p": 0.9
+                    }
                 })
             }
-            InferenceEngine::Ollama => {
-                // Ollama uses MODELFILE for params
+            InferenceEngine::Ollama | InferenceEngine::GenericOpenAI => {
                 json!({
                     "model": model_name,
                     "messages": messages,
@@ -53,19 +50,23 @@ impl InferenceEngine {
                     "stream_options": { "include_usage": true },
                 })
             }
-            InferenceEngine::GenericOpenAI => {
-                // Standard OpenAI spec
-                json!({
-                    "model": model_name,
-                    "messages": messages,
-                    "stream": true,
-                    "stream_options": { "include_usage": true },
-                    "temperature": 0.1,
-                    "min_p": 0.05,
-                    "top_p": 0.9
-                })
+        };
+
+        // 2. Fetch the target engine's parameters from the config file
+        let engine_params = match self {
+            InferenceEngine::LlamaCpp => &config.llama_cpp,
+            InferenceEngine::Ollama => &config.ollama,
+            InferenceEngine::GenericOpenAI => &config.generic_openai,
+        };
+
+        // 3. Dynamically inject all keys from config.json into the payload
+        if let Some(payload_obj) = payload.as_object_mut() {
+            for (key, value) in engine_params {
+                payload_obj.insert(key.clone(), value.clone());
             }
         }
+
+        payload
     }
 }
 

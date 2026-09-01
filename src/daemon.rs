@@ -141,6 +141,9 @@ async fn handle_connection(
 
     let mut max_tool_turns = 5;
 
+    // Load config freshly for every connection (Hot-Reloading)
+    let config = crate::config::MobiusConfig::load();
+
     // 4. Multi-turn agent execution loop
     while max_tool_turns > 0 {
         let messages_payload = session.get_api_messages();
@@ -153,6 +156,7 @@ async fn handle_connection(
             messages_payload,
             thinking_level,
             stream,
+            &config,
         )
         .await
         {

@@ -1,7 +1,6 @@
-// TODO: `--help` flag
 // TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
-// TODO: Load past conversations
 mod cli;
+mod config;
 mod daemon;
 mod engine;
 mod inferences;

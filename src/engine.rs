@@ -54,9 +54,10 @@ pub async fn ask_mobius(
     messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
     stream: &mut UnixStream,
+    config: &crate::config::MobiusConfig,
 ) -> Result<(String, TokenUsage), Box<dyn std::error::Error + Send + Sync>> {
     let server_url = engine.get_url();
-    let payload = engine.build_payload(messages_payload, thinking_level, model_name);
+    let payload = engine.build_payload(messages_payload, thinking_level, model_name, config);
 
     let mut response = client.post(server_url).json(&payload).send().await?;
     let status = response.status();
