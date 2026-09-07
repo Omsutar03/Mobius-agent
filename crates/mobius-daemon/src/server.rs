@@ -1,7 +1,7 @@
 use futures_util::{SinkExt, StreamExt};
 use mobius_core::config::MobiusConfig;
-use mobius_core::engine::{ask_mobius, ThinkingLevel};
-use mobius_core::inferences::{discover_local_models, get_context_window, InferenceEngine};
+use mobius_core::engine::{ThinkingLevel, ask_mobius};
+use mobius_core::inferences::{InferenceEngine, discover_local_models, get_context_window};
 use mobius_core::ipc::{DaemonEvent, IpcRequest};
 use mobius_core::session::{Session, TerminalHistory};
 use mobius_core::tools;
@@ -60,7 +60,9 @@ async fn handle_connection(
             Ok(req) => req,
             Err(e) => {
                 let err_event = DaemonEvent::Error(format!("Invalid request format: {}", e));
-                let _ = ws_stream.send(Message::Text(serde_json::to_string(&err_event)?)).await;
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&err_event)?))
+                    .await;
                 continue;
             }
         };
@@ -69,22 +71,104 @@ async fn handle_connection(
         if let Some(entry) = request.record_history {
             let mut history = TerminalHistory::load(request.ppid);
             history.push_entry(request.ppid, entry.command, entry.output);
-            let _ = ws_stream.send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?)).await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
             return Ok(());
         }
 
         // --- SHUTDOWN LOGIC ---
         if request.shutdown {
             let msg_event = DaemonEvent::TextChunk("Mobius daemon shutting down...\n".into());
-            let _ = ws_stream.send(Message::Text(serde_json::to_string(&msg_event)?)).await;
-            let _ = ws_stream.send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?)).await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg_event)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
             std::process::exit(0);
+        }
+
+        let mut session = Session::load(request.ppid);
+
+        // --- NEW SESSION (-n / --new-s) ---
+        if request.new_session {
+            Session::archive_and_reset(request.ppid);
+            let msg =
+                DaemonEvent::TextChunk("✨ Started fresh session for this terminal.\n".into());
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            return Ok(());
+        }
+
+        // --- QUERY TOKENS (--tokens) ---
+        if request.query_tokens {
+            let info = format!(
+                "📊 Session Context Tokens:\n  Last Prompt: {}\n  Last Completion: {}\n  Context Limit: {}\n",
+                session.last_prompt_tokens, session.last_completion_tokens, session.context_window
+            );
+            let msg = DaemonEvent::TextChunk(info);
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            return Ok(());
+        }
+
+        // --- MODEL SELECTION / QUERY (-m / --model) ---
+        if let Some(ref new_model) = request.model_override {
+            session.model_provider = Some(new_model.clone());
+            session.save(request.ppid);
+            let msg =
+                DaemonEvent::TextChunk(format!("🔄 Switched model provider to: {}\n", new_model));
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            return Ok(());
+        }
+
+        if request.query_model {
+            let active_models = discover_local_models().await;
+            let current = session.model_provider.as_deref().unwrap_or("llama");
+            let mut list = format!("🤖 Active Provider: {}\n\nAvailable Engines:\n", current);
+            for m in active_models {
+                list.push_str(&format!("  • {:?}: {}\n", m.engine, m.model_name));
+            }
+            let msg = DaemonEvent::TextChunk(list);
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            return Ok(());
+        }
+
+        // --- THINKING LEVEL QUERY (-t / --thinking) ---
+        if request.query_thinking {
+            let current = session.thinking_level.as_deref().unwrap_or("off");
+            let msg = DaemonEvent::TextChunk(format!("🧠 Current Thinking Level: {}\n", current));
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            return Ok(());
         }
 
         // --- SESSION & INFERENCE PIPELINE ---
         let (tx, mut rx) = mpsc::channel::<DaemonEvent>(100);
 
-        // Task to forward channel events to WebSocket client
         let mut ws_sink = ws_stream;
         let forward_handle = tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
@@ -96,8 +180,6 @@ async fn handle_connection(
             }
             ws_sink
         });
-
-        let mut session = Session::load(request.ppid);
 
         if let Some(ref override_level) = request.thinking_level_override {
             session.thinking_level = Some(override_level.clone());
@@ -242,7 +324,8 @@ async fn handle_connection(
                             })
                             .await;
 
-                        let output_str = tools::execute_edit_command(&path, &old_text, &new_text).await;
+                        let output_str =
+                            tools::execute_edit_command(&path, &old_text, &new_text).await;
 
                         let _ = tx
                             .send(DaemonEvent::ToolFinished {
@@ -311,9 +394,8 @@ async fn handle_connection(
         session.save(request.ppid);
 
         let _ = tx.send(DaemonEvent::Done).await;
-        drop(tx); // Close channel
+        drop(tx);
 
-        // Retrieve WebSocket stream back after forward task completes
         let _ws_stream = forward_handle.await?;
         break;
     }

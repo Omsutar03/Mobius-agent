@@ -1,9 +1,9 @@
-// TODO: change `args.daemon_mode` to `args.start_daemon` to match `args.stop_daemon`
 mod cli;
 mod ipc_client;
 mod tui;
 
 use mobius_core::ipc::IpcRequest;
+use mobius_core::session::{Session, TerminalHistory};
 
 #[tokio::main]
 async fn main() {
@@ -22,28 +22,106 @@ async fn main() {
         return;
     }
 
-    // 3. Borrowing reference to avoid moving the inner String
+    let ppid = args.override_pid.unwrap_or_else(std::process::id);
+
+    // --- HANDLE -s / --session (TUI Session Browser or Switching) ---
+    if let Some(ref flag) = args.session {
+        match flag {
+            cli::FlagAction::Query => {
+                let sessions = Session::list_all_sessions(ppid);
+                if sessions.is_empty() {
+                    println!("No sessions found.");
+                    return;
+                }
+                match tui::run_tui(sessions) {
+                    Ok(Some(selected_path)) => {
+                        Session::load_from_path_and_overwrite_current(&selected_path, ppid);
+                        println!("✅ Switched to session: {}", selected_path.display());
+                        return;
+                    }
+                    Ok(None) => return,
+                    Err(e) => {
+                        eprintln!("TUI Error: {}", e);
+                        return;
+                    }
+                }
+            }
+            cli::FlagAction::Set(target_pid_str) => {
+                if let Ok(target_pid) = target_pid_str.parse::<u32>() {
+                    // Attempt to load the targeted PID's file and overwrite the current one
+                    let target_path = mobius_core::session::Session::get_session_dir()
+                        .join(format!("{}.json", target_pid));
+                    if target_path.exists() {
+                        Session::load_from_path_and_overwrite_current(&target_path, ppid);
+                        println!("✅ Switched to session PID: {}", target_pid);
+                    } else {
+                        eprintln!("❌ Session file for PID {} does not exist.", target_pid);
+                    }
+                    return;
+                } else {
+                    eprintln!("❌ Invalid PID provided for --session");
+                    return;
+                }
+            }
+        }
+    }
+
+    // --- HANDLE -l / --last <N> (Inject recent command history) ---
+    let mut final_prompt = args.prompt.clone();
+    if let Some(n) = args.last_lines {
+        let history = TerminalHistory::load(ppid);
+        let recent_entries = history.get_last_n(n);
+
+        if !recent_entries.is_empty() {
+            let mut recent_str = String::new();
+            for entry in recent_entries {
+                recent_str.push_str(&format!("$ {}\n{}\n", entry.command, entry.output));
+            }
+            final_prompt = format!(
+                "[Context: Last {} Terminal Commands]\n{}\n\nUser Question: {}",
+                n, recent_str, final_prompt
+            );
+        }
+    }
+
+    // --- EXTRACT FLAG ACTIONS ---
     let thinking_override = match &args.thinking_level {
         Some(cli::FlagAction::Set(val)) => Some(val.clone()),
         _ => None,
     };
+    let query_thinking = matches!(&args.thinking_level, Some(cli::FlagAction::Query));
 
-    // 4. Build the payload for the daemon
+    let model_override = match &args.model {
+        Some(cli::FlagAction::Set(val)) => Some(val.clone()),
+        _ => None,
+    };
+    let query_model = matches!(&args.model, Some(cli::FlagAction::Query));
+
+    // 3. Build the payload for the daemon
     let request = IpcRequest {
-        ppid: args.override_pid.unwrap_or_else(|| std::process::id()),
-        prompt: args.prompt.clone(),
+        ppid,
+        prompt: final_prompt,
         thinking_level_override: thinking_override,
+        model_override,
+        new_session: args.new_session,
+        query_tokens: args.tokens,
+        query_model,
+        query_thinking,
         shutdown: args.stop_daemon,
         record_history: None,
     };
 
-    // 5. If no actionable flag/prompt is provided, show help
-    if request.prompt.is_empty()
-        && !request.shutdown
-        && args.session.is_none()
-        && args.model.is_none()
-        && !matches!(&args.thinking_level, Some(cli::FlagAction::Query))
-    {
+    // 5. Exit early if no action/prompt is specified
+    let has_action = !request.prompt.is_empty()
+        || request.shutdown
+        || request.new_session
+        || request.query_tokens
+        || request.query_model
+        || request.query_thinking
+        || request.thinking_level_override.is_some()
+        || request.model_override.is_some();
+
+    if !has_action {
         cli::print_help();
         return;
     }

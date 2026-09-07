@@ -12,6 +12,11 @@ pub struct IpcRequest {
     pub ppid: u32,
     pub prompt: String,
     pub thinking_level_override: Option<String>,
+    pub model_override: Option<String>,
+    pub new_session: bool,
+    pub query_tokens: bool,
+    pub query_model: bool,
+    pub query_thinking: bool,
     pub shutdown: bool,
     pub record_history: Option<HistoryEntry>,
 }
