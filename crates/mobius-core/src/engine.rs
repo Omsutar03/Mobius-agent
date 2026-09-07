@@ -1,6 +1,6 @@
 use reqwest::Client;
-use tokio::io::AsyncWriteExt;
-use tokio::net::UnixStream;
+use tokio::sync::mpsc::Sender;
+use crate::ipc::DaemonEvent;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThinkingLevel {
@@ -53,7 +53,7 @@ pub async fn ask_mobius(
     model_name: &str,
     messages_payload: serde_json::Value,
     thinking_level: ThinkingLevel,
-    stream: &mut UnixStream,
+    event_tx: &Sender<DaemonEvent>,
     config: &crate::config::MobiusConfig,
 ) -> Result<(String, TokenUsage), Box<dyn std::error::Error + Send + Sync>> {
     let server_url = engine.get_url();
@@ -70,9 +70,6 @@ pub async fn ask_mobius(
     let mut full_text = String::new(); // Accumulates ALL delta.content
     let mut buffer = String::new();
     let mut usage = TokenUsage::default();
-
-    let mut printed_mobius_prefix = false;
-    let mut has_thought = false;
     let mut in_thinking_block = false;
 
     // Labeled outer loop to break out of TCP streaming immediately on [DONE]
@@ -94,8 +91,7 @@ pub async fn ask_mobius(
                         if let Some(p) = usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()) {
                             usage.prompt_tokens = p as usize;
                         }
-                        if let Some(c) = usage_obj.get("completion_tokens").and_then(|v| v.as_u64())
-                        {
+                        if let Some(c) = usage_obj.get("completion_tokens").and_then(|v| v.as_u64()) {
                             usage.completion_tokens = c as usize;
                         }
                         if let Some(t) = usage_obj.get("total_tokens").and_then(|v| v.as_u64()) {
@@ -110,47 +106,35 @@ pub async fn ask_mobius(
                     {
                         let delta = &first_choice["delta"];
 
-                        // 2a. Handle API's native reasoning_content (DeepSeek / standard API)
-                        if let Some(reasoning) =
-                            delta.get("reasoning_content").and_then(|v| v.as_str())
-                        {
+                        // API Native reasoning content
+                        if let Some(reasoning) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
                             if !reasoning.is_empty() {
-                                has_thought = true;
-                                let formatted = format!("\x1B[90m{}\x1B[0m", reasoning);
-                                stream.write_all(formatted.as_bytes()).await?;
-                                stream.flush().await?;
+                                let _ = event_tx
+                                    .send(DaemonEvent::ThinkingChunk(reasoning.to_string()))
+                                    .await;
                             }
                         }
 
-                        // 2b. Handle standard content (which may contain inline <think> tags)
+                        // Standard content
                         if let Some(content) = delta.get("content").and_then(|v| v.as_str()) {
-                            full_text.push_str(content); // Save ALL content to be cleaned later
+                            full_text.push_str(content);
 
                             if content.contains("<think>") || content.contains("<thinking>") {
                                 in_thinking_block = true;
                             }
 
                             if in_thinking_block {
-                                has_thought = true;
-                                let formatted = format!("\x1B[90m{}\x1B[0m", content);
-                                stream.write_all(formatted.as_bytes()).await?;
-                                stream.flush().await?;
+                                let _ = event_tx
+                                    .send(DaemonEvent::ThinkingChunk(content.to_string()))
+                                    .await;
 
                                 if content.contains("</think>") || content.contains("</thinking>") {
                                     in_thinking_block = false;
                                 }
                             } else {
-                                if !printed_mobius_prefix {
-                                    if has_thought {
-                                        stream.write_all(b"\n").await?;
-                                    }
-                                    stream.write_all(b"\x1B[32mMobius:\x1B[0m ").await?;
-                                    stream.flush().await?;
-                                    printed_mobius_prefix = true;
-                                }
-
-                                stream.write_all(content.as_bytes()).await?;
-                                stream.flush().await?;
+                                let _ = event_tx
+                                    .send(DaemonEvent::TextChunk(content.to_string()))
+                                    .await;
                             }
                         }
                     }
@@ -159,12 +143,8 @@ pub async fn ask_mobius(
         }
     }
 
-    stream.write_all(b"\n").await?;
-    stream.flush().await?;
-
     // 3. Clean up any inline thinking blocks before saving text to history / passing to tool parser
     let final_cleaned_text = clean_thinking_blocks(&full_text);
-
     Ok((final_cleaned_text, usage))
 }
 

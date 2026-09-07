@@ -1,9 +1,11 @@
-use crate::session::{Session, SessionFile};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, MouseEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+
+use mobius_core::session::{Session, SessionFile};
+
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -12,6 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
+    
 use std::{io, path::PathBuf};
 
 pub fn run_tui(mut sessions: Vec<SessionFile>) -> Result<Option<PathBuf>, io::Error> {

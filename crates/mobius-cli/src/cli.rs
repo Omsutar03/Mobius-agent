@@ -178,7 +178,7 @@ impl CliArgs {
     }
 }
 
-fn parse_flag_action(
+pub fn parse_flag_action(
     par: &mut Arguments,
     keys: [&'static str; 2],
 ) -> Result<Option<FlagAction>, String> {

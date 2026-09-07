@@ -1,68 +1,44 @@
-use crate::Duration;
-use crate::session::Session;
+use futures_util::{SinkExt, StreamExt};
+use mobius_core::config::MobiusConfig;
+use mobius_core::engine::{ask_mobius, ThinkingLevel};
+use mobius_core::inferences::{discover_local_models, get_context_window, InferenceEngine};
+use mobius_core::ipc::{DaemonEvent, IpcRequest};
+use mobius_core::session::{Session, TerminalHistory};
+use mobius_core::tools;
 use reqwest::Client;
-use std::env;
-use std::fs;
-use std::path::PathBuf;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use std::time::Duration;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::Message;
 
-use crate::engine::{ThinkingLevel, ask_mobius};
-use crate::inferences::get_context_window;
-use crate::ipc::IpcRequest;
-use crate::tools;
+pub const DEFAULT_PORT: u16 = 43812;
 
-// Resolves the path to `~/.local/state/mobius/mobius.sock`
-pub fn get_socket_path() -> PathBuf {
-    let home = env::var("HOME").expect("Could not find HOME directory");
-    let state_dir = PathBuf::from(home)
-        .join(".local")
-        .join("state")
-        .join("mobius");
+pub async fn start_daemon() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = format!("127.0.0.1:{}", DEFAULT_PORT);
+    let listener = TcpListener::bind(&addr).await?;
 
-    if !state_dir.exists() {
-        fs::create_dir_all(&state_dir).expect("Failed to create mobius state directory");
-    }
-
-    state_dir.join("mobius.sock")
-}
-
-// Starts the background listener loop
-pub async fn start_daemon() {
-    let socket_path = get_socket_path();
-
-    // Unix sockets leave a ghost file behind if the process crashes.
-    // Must delete the old file before we can bind to the path again.
-    if socket_path.exists() {
-        fs::remove_file(&socket_path).expect("Failed to clean up old Unix socket");
-    }
-
-    let listener = UnixListener::bind(&socket_path).expect("Failed to bind Unix socket");
-
-    // Disable idle socket reuse on the shared reqwest::Client so every tool turn opens a fresh HTTP connection.
     let http_client = Client::builder()
-        .pool_max_idle_per_host(0) // Disables keep-alive socket reuse for SSE streams
+        .pool_max_idle_per_host(0)
         .timeout(Duration::from_secs(300))
         .connect_timeout(Duration::from_secs(5))
         .build()
         .unwrap_or_else(|_| Client::new());
 
-    println!("🚀 Mobius Daemon started. Listening on {:?}", socket_path);
+    println!("🚀 Mobius WebSocket Daemon listening on ws://{}", addr);
 
-    // Infinite loop waiting for clients to connect
     loop {
         match listener.accept().await {
-            Ok((mut stream, _addr)) => {
+            Ok((stream, _)) => {
                 let client_clone = http_client.clone();
-
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(client_clone, &mut stream).await {
+                    if let Err(e) = handle_connection(client_clone, stream).await {
                         eprintln!("❌ Connection error: {}", e);
                     }
                 });
             }
             Err(e) => {
-                eprintln!("⚠️ Failed to accept client connection: {}", e);
+                eprintln!("⚠️ Failed to accept TCP connection: {}", e);
             }
         }
     }
@@ -70,210 +46,277 @@ pub async fn start_daemon() {
 
 async fn handle_connection(
     client: Client,
-    stream: &mut UnixStream,
+    stream: TcpStream,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut buffer = Vec::new();
-    stream.read_to_end(&mut buffer).await?;
+    let mut ws_stream = accept_async(stream).await?;
 
-    if buffer.is_empty() {
-        return Ok(());
-    }
-
-    let request: IpcRequest = serde_json::from_slice(&buffer)?;
-
-    // --- HISTORY RECORDING LOGIC ---
-    if let Some(entry) = request.record_history {
-        let mut history = crate::session::TerminalHistory::load(request.ppid);
-        history.push_entry(request.ppid, entry.command, entry.output);
-        let _ = stream.write_all(b"OK").await;
-        return Ok(());
-    }
-
-    // --- SHUTDOWN LOGIC ---
-    if request.shutdown {
-        let socket_path = get_socket_path();
-        if socket_path.exists() {
-            let _ = fs::remove_file(socket_path); // Clean up the ghost file!
+    while let Some(msg) = ws_stream.next().await {
+        let msg = msg?;
+        if !msg.is_text() {
+            continue;
         }
 
-        // Send a polite confirmation back to the client terminal
-        stream
-            .write_all(b"[\x1B[32mOK\x1B[0m] Mobius daemon shut down successfully.\n")
-            .await?;
-        stream.flush().await?;
-
-        // Immediately terminate the background process
-        std::process::exit(0);
-    }
-
-    // --- SESSION & INFERENCE PIPELINE ---
-
-    // 1. Load past history from disk (or start fresh)
-    let mut session = Session::load(request.ppid);
-
-    // 2. Persist thinking level override to the session if explicitly passed via CLI
-    if let Some(ref override_level) = request.thinking_level_override {
-        session.thinking_level = Some(override_level.clone());
-    }
-
-    // Resolve active Thinking Level
-    let thinking_str = session.thinking_level.as_deref().unwrap_or("off");
-    let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Off); // Extra fallback for edited/corrupt session file
-
-    // 3. Append the user's new prompt
-    session.add_message("user", &request.prompt);
-
-    // Resolve active Inference Engine
-    let provider_str = session.model_provider.as_deref().unwrap_or("llama");
-    let engine = match provider_str {
-        "ollama" => crate::inferences::InferenceEngine::Ollama,
-        "lmstudio" => crate::inferences::InferenceEngine::GenericOpenAI,
-        _ => crate::inferences::InferenceEngine::LlamaCpp,
-    };
-
-    // Dynamically fetch the active model name loaded on this engine's port
-    let active_models = crate::inferences::discover_local_models().await;
-    let model_name = active_models
-        .iter()
-        .find(|m| m.engine == engine)
-        .map(|m| m.model_name.clone())
-        .unwrap_or_else(|| "default".to_string());
-
-    let mut max_tool_turns = 5;
-
-    // Load config freshly for every connection (Hot-Reloading)
-    let config = crate::config::MobiusConfig::load();
-
-    // 4. Multi-turn agent execution loop
-    while max_tool_turns > 0 {
-        let messages_payload = session.get_api_messages();
-
-        // Query LLM and stream chunk response
-        let (response, usage) = match ask_mobius(
-            &client,
-            &engine,
-            &model_name,
-            messages_payload,
-            thinking_level,
-            stream,
-            &config,
-        )
-        .await
-        {
-            Ok(res) => res,
+        let request: IpcRequest = match serde_json::from_str(msg.to_text()?) {
+            Ok(req) => req,
             Err(e) => {
-                // Convert to String immediately to drop non-Send `e` before .await
-                let err_str = e.to_string();
-                let err_msg = format!("\n\x1B[31m❌ [Mobius Engine Error]: {}\x1B[0m\n", err_str);
-                let _ = stream.write_all(err_msg.as_bytes()).await;
-                let _ = stream.flush().await;
-                return Err(err_str.into());
+                let err_event = DaemonEvent::Error(format!("Invalid request format: {}", e));
+                let _ = ws_stream.send(Message::Text(serde_json::to_string(&err_event)?)).await;
+                continue;
             }
         };
 
-        // --- Persist the token usage ---
-        session.last_prompt_tokens = usage.prompt_tokens;
-        session.last_completion_tokens = usage.completion_tokens;
-        session.context_window = get_context_window(&client, &engine, &model_name).await;
+        // --- HISTORY RECORDING LOGIC ---
+        if let Some(entry) = request.record_history {
+            let mut history = TerminalHistory::load(request.ppid);
+            history.push_entry(request.ppid, entry.command, entry.output);
+            let _ = ws_stream.send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?)).await;
+            return Ok(());
+        }
 
-        // Save model's reponse to history
-        session.add_message("assistant", &response);
+        // --- SHUTDOWN LOGIC ---
+        if request.shutdown {
+            let msg_event = DaemonEvent::TextChunk("Mobius daemon shutting down...\n".into());
+            let _ = ws_stream.send(Message::Text(serde_json::to_string(&msg_event)?)).await;
+            let _ = ws_stream.send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?)).await;
+            std::process::exit(0);
+        }
 
-        // Check if the response contains local tool command
-        if let Some(tool_call) = tools::parse_tool_call(&response) {
-            match tool_call {
-                tools::ToolCall::Shell(cmd) => {
-                    // Print visual status mesasge to the user terinal
-                    let status_msg = format!("\x1B[33m⚡ [Executing]:\x1B[0m {}\n", cmd);
-                    stream.write_all(status_msg.as_bytes()).await?;
+        // --- SESSION & INFERENCE PIPELINE ---
+        let (tx, mut rx) = mpsc::channel::<DaemonEvent>(100);
 
-                    // Execute shell command with timeout
-                    let output_str = match tools::execute_shell_command(&cmd, 10).await {
-                        Ok(out) => out.to_llm_string(),
-                        Err(err_msg) => format!("[Execution Error]: {}", err_msg),
-                    };
-
-                    // Feed execution result back into chat history for next iteration
-                    let tool_feedback = format!(
-                        "[Tool Output for `{}`]:\n{}\n\nPlease provide the final response to the user based on this output.",
-                        cmd, output_str
-                    );
-                    session.add_message("user", &tool_feedback);
-                }
-                tools::ToolCall::Read { path } => {
-                    let status_msg = format!("\x1B[36m📄 [Reading File]:\x1B[0m {}\n", path);
-                    stream.write_all(status_msg.as_bytes()).await?;
-
-                    let output_str = tools::execute_read_command(&path).await;
-
-                    let tool_feedback = format!(
-                        "{}\n\nPlease analyze this file content and answer the user.",
-                        output_str
-                    );
-                    session.add_message("user", &tool_feedback);
-                }
-                tools::ToolCall::Write { path, content } => {
-                    let status_msg = format!("\x1B[33m✍️  [Writing File]:\x1B[0m {}\n", path);
-                    stream.write_all(status_msg.as_bytes()).await?;
-
-                    let output_str = tools::execute_write_command(&path, &content).await;
-
-                    let tool_feedback = format!(
-                        "{}\n\nPlease confirm to the user that the file was created or updated successfully.",
-                        output_str
-                    );
-                    session.add_message("user", &tool_feedback);
-                }
-                tools::ToolCall::Edit {
-                    path,
-                    old_text,
-                    new_text,
-                } => {
-                    let status_msg = format!("\x1B[35m✏️  [Editing File]:\x1B[0m {}\n", path);
-                    stream.write_all(status_msg.as_bytes()).await?;
-
-                    let output_str = tools::execute_edit_command(&path, &old_text, &new_text).await;
-
-                    let tool_feedback = format!(
-                        "{}\n\nPlease verify the result and inform the user.",
-                        output_str
-                    );
-                    session.add_message("user", &tool_feedback);
-                }
-                tools::ToolCall::WebSearch { query } => {
-                    let status_msg = format!("\x1B[34m🔍 [Searching Web]:\x1B[0m {}\n", query);
-                    stream.write_all(status_msg.as_bytes()).await?;
-
-                    let output_str = tools::execute_web_search_command(&query).await;
-
-                    let tool_feedback = format!(
-                        "{}\n\nPlease review these results. If you need more details from a specific result, use the 'read_webpage' tool on its URL.",
-                        output_str
-                    );
-                    session.add_message("user", &tool_feedback);
-                }
-                tools::ToolCall::ReadWebPage { url } => {
-                    let status_msg = format!("\x1B[36m🌐 [Reading Webpage]:\x1B[0m {}\n", url);
-                    stream.write_all(status_msg.as_bytes()).await?;
-
-                    let output_str = tools::execute_read_webpage_command(&url).await;
-
-                    let tool_feedback = format!(
-                        "{}\n\nPlease analyze this page content to answer the user's question.",
-                        output_str
-                    );
-                    session.add_message("user", &tool_feedback);
+        // Task to forward channel events to WebSocket client
+        let mut ws_sink = ws_stream;
+        let forward_handle = tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let Ok(json) = serde_json::to_string(&event) {
+                    if ws_sink.send(Message::Text(json)).await.is_err() {
+                        break;
+                    }
                 }
             }
+            ws_sink
+        });
 
-            max_tool_turns -= 1;
-        } else {
-            break; // No tool call requested
+        let mut session = Session::load(request.ppid);
+
+        if let Some(ref override_level) = request.thinking_level_override {
+            session.thinking_level = Some(override_level.clone());
         }
-    }
 
-    // Save final updated session back to disk
-    session.save(request.ppid);
+        let thinking_str = session.thinking_level.as_deref().unwrap_or("off");
+        let thinking_level = ThinkingLevel::from_str(thinking_str).unwrap_or(ThinkingLevel::Off);
+
+        session.add_message("user", &request.prompt);
+
+        let provider_str = session.model_provider.as_deref().unwrap_or("llama");
+        let engine = match provider_str {
+            "ollama" => InferenceEngine::Ollama,
+            "lmstudio" => InferenceEngine::GenericOpenAI,
+            _ => InferenceEngine::LlamaCpp,
+        };
+
+        let active_models = discover_local_models().await;
+        let model_name = active_models
+            .iter()
+            .find(|m| m.engine == engine)
+            .map(|m| m.model_name.clone())
+            .unwrap_or_else(|| "default".to_string());
+
+        let mut max_tool_turns = 5;
+        let config = MobiusConfig::load();
+
+        while max_tool_turns > 0 {
+            let messages_payload = session.get_api_messages();
+
+            let (response, usage) = match ask_mobius(
+                &client,
+                &engine,
+                &model_name,
+                messages_payload,
+                thinking_level,
+                &tx,
+                &config,
+            )
+            .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    let _ = tx.send(DaemonEvent::Error(e.to_string())).await;
+                    break;
+                }
+            };
+
+            session.last_prompt_tokens = usage.prompt_tokens;
+            session.last_completion_tokens = usage.completion_tokens;
+            session.context_window = get_context_window(&client, &engine, &model_name).await;
+
+            let _ = tx
+                .send(DaemonEvent::TokenUsage {
+                    prompt: usage.prompt_tokens,
+                    completion: usage.completion_tokens,
+                })
+                .await;
+
+            session.add_message("assistant", &response);
+
+            if let Some(tool_call) = tools::parse_tool_call(&response) {
+                match tool_call {
+                    tools::ToolCall::Shell(cmd) => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "bash".into(),
+                                details: cmd.clone(),
+                            })
+                            .await;
+
+                        let output_str = match tools::execute_shell_command(&cmd, 10).await {
+                            Ok(out) => out.to_llm_string(),
+                            Err(err_msg) => format!("[Execution Error]: {}", err_msg),
+                        };
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "[Tool Output for `{}`]:\n{}\n\nPlease provide the final response to the user based on this output.",
+                            cmd, output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                    tools::ToolCall::Read { path } => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "read".into(),
+                                details: path.clone(),
+                            })
+                            .await;
+
+                        let output_str = tools::execute_read_command(&path).await;
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "{}\n\nPlease analyze this file content and answer the user.",
+                            output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                    tools::ToolCall::Write { path, content } => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "write".into(),
+                                details: path.clone(),
+                            })
+                            .await;
+
+                        let output_str = tools::execute_write_command(&path, &content).await;
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "{}\n\nPlease confirm to the user that the file was created or updated successfully.",
+                            output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                    tools::ToolCall::Edit {
+                        path,
+                        old_text,
+                        new_text,
+                    } => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "edit".into(),
+                                details: path.clone(),
+                            })
+                            .await;
+
+                        let output_str = tools::execute_edit_command(&path, &old_text, &new_text).await;
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "{}\n\nPlease verify the result and inform the user.",
+                            output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                    tools::ToolCall::WebSearch { query } => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "web_search".into(),
+                                details: query.clone(),
+                            })
+                            .await;
+
+                        let output_str = tools::execute_web_search_command(&query).await;
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "{}\n\nPlease review these results. If you need more details from a specific result, use the 'read_webpage' tool on its URL.",
+                            output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                    tools::ToolCall::ReadWebPage { url } => {
+                        let _ = tx
+                            .send(DaemonEvent::ToolStart {
+                                tool_name: "read_webpage".into(),
+                                details: url.clone(),
+                            })
+                            .await;
+
+                        let output_str = tools::execute_read_webpage_command(&url).await;
+
+                        let _ = tx
+                            .send(DaemonEvent::ToolFinished {
+                                result: output_str.clone(),
+                            })
+                            .await;
+
+                        let tool_feedback = format!(
+                            "{}\n\nPlease analyze this page content to answer the user's question.",
+                            output_str
+                        );
+                        session.add_message("user", &tool_feedback);
+                    }
+                }
+
+                max_tool_turns -= 1;
+            } else {
+                break;
+            }
+        }
+
+        session.save(request.ppid);
+
+        let _ = tx.send(DaemonEvent::Done).await;
+        drop(tx); // Close channel
+
+        // Retrieve WebSocket stream back after forward task completes
+        let _ws_stream = forward_handle.await?;
+        break;
+    }
 
     Ok(())
 }
