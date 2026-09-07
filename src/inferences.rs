@@ -52,19 +52,19 @@ impl InferenceEngine {
             }
         };
 
-        // 2. Fetch the target engine's parameters from the config file
-        let engine_params = match self {
-            InferenceEngine::LlamaCpp => &config.llama_cpp,
-            InferenceEngine::Ollama => &config.ollama,
-            InferenceEngine::GenericOpenAI => &config.generic_openai,
-        };
+        // // 2. Fetch the target engine's parameters from the config file
+        // let engine_params = match self {
+        //     InferenceEngine::LlamaCpp => &config.llama_cpp,
+        //     InferenceEngine::Ollama => &config.ollama,
+        //     InferenceEngine::GenericOpenAI => &config.generic_openai,
+        // };
 
         // 3. Dynamically inject all keys from config.json into the payload
-        if let Some(payload_obj) = payload.as_object_mut() {
-            for (key, value) in engine_params {
-                payload_obj.entry(key.clone()).or_insert(value.clone());
-            }
-        }
+        // if let Some(payload_obj) = payload.as_object_mut() {
+        //     for (key, value) in engine_params {
+        //         payload_obj.entry(key.clone()).or_insert(value.clone());
+        //     }
+        // }
 
         payload
     }
