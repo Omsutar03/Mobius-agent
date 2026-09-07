@@ -29,7 +29,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    
+
     // 2. HELP FLAG: Print usage guide and exit immediately
     if args.help {
         cli::print_help();
