@@ -22,6 +22,31 @@ async fn main() {
         return;
     }
 
+    // --- HANDLE --gui FLAG ---
+    if args.gui {
+        println!("🚀 Launching Mobius GUI...");
+
+        // Look for the mobius-gui binary next to current executable target directory
+        let current_exe = std::env::current_exe().ok();
+        let gui_binary = current_exe
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("mobius-gui"))
+            .unwrap_or_else(|| std::path::PathBuf::from("mobius-gui"));
+
+        match std::process::Command::new(gui_binary).spawn() {
+            Ok(_) => {
+                println!("✨ Mobius GUI launched successfully.");
+                return;
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to launch mobius-gui process: {}", e);
+                eprintln!("💡 Tip: Make sure to build the GUI using: cargo build -p mobius-gui");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let ppid = args.override_pid.unwrap_or_else(std::process::id);
 
     // --- HANDLE -s / --session (TUI Session Browser or Switching) ---

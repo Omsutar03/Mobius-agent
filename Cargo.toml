@@ -2,6 +2,7 @@
 members = [
     "crates/mobius-core",
     "crates/mobius-daemon",
-    "crates/mobius-cli"
+    "crates/mobius-cli",
+    "crates/mobius-gui/src-tauri"
 ]
 resolver = "2"

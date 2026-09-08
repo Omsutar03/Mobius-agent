@@ -51,7 +51,14 @@ async fn handle_connection(
     let mut ws_stream = accept_async(stream).await?;
 
     while let Some(msg) = ws_stream.next().await {
-        let msg = msg?;
+        let msg = match msg {
+            Ok(m) => m,
+            Err(_) => break, // Graceful disconnect when client closes connection
+        };
+
+        if msg.is_close() {
+            break;
+        }
         if !msg.is_text() {
             continue;
         }
@@ -74,7 +81,7 @@ async fn handle_connection(
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
-            return Ok(());
+            continue;
         }
 
         // --- SHUTDOWN LOGIC ---
@@ -102,7 +109,7 @@ async fn handle_connection(
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
-            return Ok(());
+            continue;
         }
 
         // --- QUERY TOKENS (--tokens) ---
@@ -118,22 +125,28 @@ async fn handle_connection(
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
-            return Ok(());
+            continue;
         }
 
         // --- MODEL SELECTION / QUERY (-m / --model) ---
         if let Some(ref new_model) = request.model_override {
             session.model_provider = Some(new_model.clone());
             session.save(request.ppid);
-            let msg =
-                DaemonEvent::TextChunk(format!("🔄 Switched model provider to: {}\n", new_model));
-            let _ = ws_stream
-                .send(Message::Text(serde_json::to_string(&msg)?))
-                .await;
-            let _ = ws_stream
-                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
-                .await;
-            return Ok(());
+
+            // Only return early if there is no prompt provided with this request
+            if request.prompt.trim().is_empty() && !request.query_model {
+                let msg = DaemonEvent::TextChunk(format!(
+                    "🔄 Switched model provider to: {}\n",
+                    new_model
+                ));
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&msg)?))
+                    .await;
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                    .await;
+                return Ok(());
+            }
         }
 
         if request.query_model {
@@ -150,7 +163,7 @@ async fn handle_connection(
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
-            return Ok(());
+            continue;
         }
 
         // --- THINKING LEVEL QUERY (-t / --thinking) ---
@@ -163,7 +176,15 @@ async fn handle_connection(
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
-            return Ok(());
+            continue;
+        }
+
+        // Ignore empty prompts if no command action was specified
+        if request.prompt.trim().is_empty() {
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
         }
 
         // --- SESSION & INFERENCE PIPELINE ---

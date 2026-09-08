@@ -13,6 +13,7 @@ pub struct CliArgs {
     pub daemon_mode: bool, // Hidden flag
     pub stop_daemon: bool,
     pub new_session: bool,
+    pub gui: bool,
     pub session: Option<FlagAction>,
     pub tokens: bool,
     pub thinking_level: Option<FlagAction>,
@@ -35,6 +36,7 @@ impl CliArgs {
                 daemon_mode: false,
                 stop_daemon: false,
                 new_session: false,
+                gui: false,
                 tokens: false,
                 thinking_level: None,
                 model: None,
@@ -51,6 +53,9 @@ impl CliArgs {
 
         // Flag for stopping daemon
         let stop_daemon = par.contains("--stop-daemon");
+
+        // Flag for launching GUI
+        let gui = par.contains("--gui");
 
         // 1. Extract all flags
         let help = par.contains(["-h", "--help"]);
@@ -85,6 +90,7 @@ impl CliArgs {
                 daemon_mode,
                 stop_daemon: false,
                 new_session: false,
+                gui: false,
                 session: None,
                 tokens: false,
                 thinking_level: None,
@@ -102,6 +108,7 @@ impl CliArgs {
             help,
             stop_daemon,
             new_session,
+            gui,
             tokens,
             thinking_level.is_some(),
             model.is_some(),
@@ -118,7 +125,14 @@ impl CliArgs {
             );
         }
 
-        // B: --stop-daemon MUST be standalone (no prompt allowed)
+        // B: --gui MUST be standalone
+        if gui && has_prompt {
+            return Err(
+                "The `--gui` flag must be used on its own. Do not pass a prompt.".to_string(),
+            );
+        }
+
+        // C: --stop-daemon MUST be standalone (no prompt allowed)
         if stop_daemon && has_prompt {
             return Err(
                 "The `--stop-daemon` flag must be used on its own. Do not pass a prompt."
@@ -126,7 +140,7 @@ impl CliArgs {
             );
         }
 
-        // C: -n / --new-s MUST be standalone (no prompt allowed)
+        // D: -n / --new-s MUST be standalone (no prompt allowed)
         if new_session && has_prompt {
             return Err(
                 "The `-n` / `--new-s` flag must be used on its own. Do not pass a prompt with it."
@@ -134,19 +148,19 @@ impl CliArgs {
             );
         }
 
-        // D: -t / --thinking MUST be standalone / value-only (no prompt allowed)
+        // E: -t / --thinking MUST be standalone / value-only (no prompt allowed)
         if thinking_level.is_some() && has_prompt {
             return Err(
                 "The `-t` / `--thinking` flag is strictly for setting or querying thinking levels. Do not pass a prompt with it.".to_string(),
             );
         }
 
-        // E: -m / --model MUST be standalone / value-only (no prompt allowed)
+        // F: -m / --model MUST be standalone / value-only (no prompt allowed)
         if model.is_some() && has_prompt {
             return Err("The model flag (-m / --model) is strictly for querying or switching models. Do not pass a prompt with it.".to_string());
         }
 
-        // F: --tokens MUST be standalone
+        // G: --tokens MUST be standalone
         if tokens && has_prompt {
             return Err(
                 "The `--tokens` flag must be used on its own. Do not pass a prompt with it."
@@ -154,7 +168,7 @@ impl CliArgs {
             );
         }
 
-        // G: MUST be standalone
+        // H: MUST be standalone
         if session.is_some() && has_prompt {
             return Err(
                 "The `-s` / `--session` flag is strictly for querying or switching sessions. Do not pass a prompt with it.".to_string(),
@@ -166,6 +180,7 @@ impl CliArgs {
             daemon_mode,
             stop_daemon,
             new_session,
+            gui,
             session,
             tokens,
             thinking_level,
@@ -201,6 +216,7 @@ pub fn print_help() {
           mobius [FLAGS] [PROMPT]\n\n\
         \x1B[1;33mFLAGS:\x1B[0m\n  \
           \x1B[1;32m-h, --help\x1B[0m              Show this help message\n  \
+          \x1B[1;32m--gui\x1B[0m                   Launch the desktop GUI frontend\n  \
           \x1B[1;32m-n, --new-s\x1B[0m             Archive current session & start fresh\n  \
           \x1B[1;32m-s, --session [PID]\x1B[0m     Launch interactive session browser (TUI) or switch session PID\n  \
           \x1B[1;32m-m, --model [NAME]\x1B[0m      Query available local models or set provider (llama, ollama, lmstudio)\n  \
@@ -210,6 +226,7 @@ pub fn print_help() {
           \x1B[1;32m--stop-daemon\x1B[0m           Stop the background Mobius daemon process\n\n\
         \x1B[1;33mEXAMPLES:\x1B[0m\n  \
           mobius \"Explain Tokio async channels\"\n  \
+          mobius --gui\n  \
           mobius -l 3 \"Why did my cargo build fail?\"\n  \
           mobius -s\n  \
           mobius -t high"
