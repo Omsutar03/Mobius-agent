@@ -6,7 +6,7 @@
 
   let prompt = "";
   let selectedModel = "llama";
-  let selectedThinking = "off";
+  let selectedThinking = "med";
   let textareaEl: HTMLTextAreaElement;
 
   function handleInput() {

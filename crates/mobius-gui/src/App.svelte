@@ -126,7 +126,7 @@
       ppid: activePid,
       prompt,
       model_override: model,
-      thinking_level_override: thinking === "off" ? null : thinking,
+      thinking_level_override: thinking,
       new_session: false,
       query_tokens: false,
       query_model: false,
@@ -202,7 +202,7 @@
             {#if msg.role === "user"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             {:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+              <svg width="16" height="16" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"><path d="M18 229.515C21.2635 134.81 142.198 93.2816 180.979 187.467C195.038 221.61 210.522 251.92 246.051 267.464C333.518 305.729 393.176 116.751 302.765 122.394C251.811 125.574 208.948 179.579 194.981 195.639"/><path d="M149.434 240.392C109 279.486 18 307.832 18 229.515"/><path d="M37.1055 226.335C37.1055 197.114 78.025 155.804 109.938 165.378C132.376 172.109 133.181 192.625 140.981 211.346C146.734 225.152 157.577 240.74 166.652 252.539C178.928 268.496 194.755 285.777 212.62 295.522C263.494 323.271 326.382 311.12 356.495 259.106C385.15 209.612 406.234 97.071 320.743 91.2672C261.088 87.2188 214.162 129.867 178.773 172.515"/><path d="M134 216.986C101.429 248.437 84.0354 253.729 75.3616 254.674C45.7149 257.581 37 242.986 37 223.975"/></svg>
             {/if}
           </div>
           <div class="message-body">
@@ -226,7 +226,7 @@
       {#if isStreaming}
         <div class="message-row assistant streaming">
           <div class="avatar">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+            <svg width="16" height="16" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"><path d="M18 229.515C21.2635 134.81 142.198 93.2816 180.979 187.467C195.038 221.61 210.522 251.92 246.051 267.464C333.518 305.729 393.176 116.751 302.765 122.394C251.811 125.574 208.948 179.579 194.981 195.639"/><path d="M149.434 240.392C109 279.486 18 307.832 18 229.515"/><path d="M37.1055 226.335C37.1055 197.114 78.025 155.804 109.938 165.378C132.376 172.109 133.181 192.625 140.981 211.346C146.734 225.152 157.577 240.74 166.652 252.539C178.928 268.496 194.755 285.777 212.62 295.522C263.494 323.271 326.382 311.12 356.495 259.106C385.15 209.612 406.234 97.071 320.743 91.2672C261.088 87.2188 214.162 129.867 178.773 172.515"/><path d="M134 216.986C101.429 248.437 84.0354 253.729 75.3616 254.674C45.7149 257.581 37 242.986 37 223.975"/></svg>
           </div>
           <div class="message-body">
             {#if currentThinking}
