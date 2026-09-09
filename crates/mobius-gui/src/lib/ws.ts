@@ -1,4 +1,4 @@
-import type { IpcRequest, DaemonEvent } from "./types";
+import type { IpcRequest, DaemonEvent, SessionMetadata } from "./types";
 
 export type EventCallbacks = {
   onThinkingChunk?: (chunk: string) => void;
@@ -8,6 +8,7 @@ export type EventCallbacks = {
   onTokenUsage?: (usage: { prompt: number; completion: number }) => void;
   onError?: (error: string) => void;
   onDone?: () => void;
+  onSessionList?: (sessions: SessionMetadata[]) => void;
 };
 
 export class DaemonClient {
@@ -95,6 +96,9 @@ export class DaemonClient {
           case "Done":
             if (callbacks.onDone) callbacks.onDone();
             break;
+          case "SessionList":
+            if (callbacks.onSessionList) callbacks.onSessionList(data.payload);
+            break;
         }
       } catch (e) {
         if (callbacks.onError) callbacks.onError("Failed to parse daemon payload.");
@@ -107,6 +111,38 @@ export class DaemonClient {
 
   public getConnected(): boolean {
     return this.isConnected;
+  }
+
+  public listSessions(ppid: number, callbacks: EventCallbacks): boolean {
+    return this.sendRequest(
+      {
+        ppid,
+        prompt: "",
+        new_session: false,
+        query_tokens: false,
+        query_model: false,
+        query_thinking: false,
+        shutdown: false,
+        list_sessions: true
+      },
+      callbacks
+    );
+  }
+
+  public loadSession(ppid: number, path: string, callbacks: EventCallbacks): boolean {
+    return this.sendRequest(
+      {
+        ppid,
+        prompt: "",
+        new_session: false,
+        query_tokens: false,
+        query_model: false,
+        query_thinking: false,
+        shutdown: false,
+        load_session: path
+      },
+      callbacks
+    );
   }
 }
 

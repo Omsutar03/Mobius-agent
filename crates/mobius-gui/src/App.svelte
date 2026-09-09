@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { marked } from "marked";
   import { daemonClient } from "./lib/ws";
-  import type { Message, IpcRequest } from "./lib/types";
+  import type { Message, IpcRequest, SessionMetadata } from "./lib/types";
   import { stripToolBlocks } from "./lib/utils/format";
 
   import Sidebar from "./lib/components/Sidebar.svelte";
@@ -15,6 +15,7 @@
   let activePid = Math.floor(Math.random() * 89999) + 10000;
 
   let messages: Message[] = [];
+  let sessions: SessionMetadata[] = [];
   let promptTokens = 0;
   let completionTokens = 0;
 
@@ -31,9 +32,24 @@
     }
   }
 
+  function refreshSessions() {
+    if (!isConnected) return;
+    daemonClient.listSessions(activePid, {
+      onSessionList: (list) => {
+        sessions = list;
+      },
+      onError: () => {
+        sessions = [];
+      }
+    });
+  }
+
   onMount(() => {
     daemonClient.connect((connected) => {
       isConnected = connected;
+      if (connected) {
+        refreshSessions();
+      }
     });
   });
 
@@ -48,10 +64,40 @@
       query_thinking: false,
       shutdown: false
     };
-    daemonClient.sendRequest(req, {});
-    messages = [];
-    promptTokens = 0;
-    completionTokens = 0;
+    daemonClient.sendRequest(req, {
+      onDone: () => {
+        messages = [];
+        promptTokens = 0;
+        completionTokens = 0;
+        refreshSessions();
+      }
+    });
+  }
+
+  function handleSelectSession(path: string) {
+    if (isStreaming) return;
+    daemonClient.loadSession(activePid, path, {
+      onTextChunk: (chunk) => {
+        try {
+          const parsed: Array<{ role: string; content: string }> = JSON.parse(chunk);
+          messages = parsed.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content
+          }));
+        } catch {
+          // Not JSON - treat as a simple confirmation and start empty
+          messages = [];
+        }
+        scrollToBottom();
+      },
+      onError: (err) => {
+        messages = [...messages, { role: "assistant", content: `❌ Error loading session: ${err}` }];
+        scrollToBottom();
+      },
+      onDone: () => {
+        refreshSessions();
+      }
+    });
   }
 
   function handlePromptSubmit(prompt: string, model: string, thinking: string) {
@@ -113,6 +159,7 @@
         currentResponse = "";
         currentTools = [];
         isStreaming = false;
+        refreshSessions();
         scrollToBottom();
       },
       onError: (err) => {
@@ -125,7 +172,13 @@
 </script>
 
 <main class="app-layout">
-  <Sidebar {activePid} {isConnected} onNewChat={handleNewChat} />
+  <Sidebar
+    {activePid}
+    {isConnected}
+    {sessions}
+    onNewChat={handleNewChat}
+    onSelectSession={handleSelectSession}
+  />
 
   <section class="chat-viewport">
     <div class="message-feed" bind:this={feedContainer}>

@@ -60,6 +60,14 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
                         println!(); // Print final newline when done
                         break;
                     }
+                    DaemonEvent::SessionList(sessions) => {
+                        for s in sessions {
+                            let marker = if s.is_active { "●" } else { "○" };
+                            println!("{} {}", marker, s.filename);
+                            println!("   {}", s.preview);
+                            println!("   {} messages", s.message_count);
+                        }
+                    }
                 }
             }
         }

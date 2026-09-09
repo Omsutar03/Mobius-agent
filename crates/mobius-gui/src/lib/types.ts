@@ -10,6 +10,8 @@ export interface IpcRequest {
   query_thinking: boolean;
   shutdown: boolean;
   record_history?: any | null;
+  list_sessions?: boolean;
+  load_session?: string | null;
 }
 
 // Matches #[serde(tag = "type", content = "payload")] DaemonEvent JSON serialization
@@ -20,7 +22,8 @@ export type DaemonEvent =
   | { type: "ToolFinished"; payload: { result: string } }
   | { type: "TokenUsage"; payload: { prompt: number; completion: number } }
   | { type: "Error"; payload: string }
-  | { type: "Done" };
+  | { type: "Done" }
+  | { type: "SessionList"; payload: SessionMetadata[] };
 
 export interface Message {
   role: "user" | "assistant";
@@ -29,9 +32,11 @@ export interface Message {
   tools?: Array<{ tool_name: string; details: string; output?: string }>;
 }
 
+// Matches mobius_core::ipc::SessionMetadata
 export interface SessionMetadata {
   filename: string;
   path: string;
   preview: string;
   is_active: boolean;
+  message_count: number;
 }

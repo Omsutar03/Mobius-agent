@@ -2,7 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use mobius_core::config::MobiusConfig;
 use mobius_core::engine::{ThinkingLevel, ask_mobius};
 use mobius_core::inferences::{InferenceEngine, discover_local_models, get_context_window};
-use mobius_core::ipc::{DaemonEvent, IpcRequest};
+use mobius_core::ipc::{DaemonEvent, IpcRequest, SessionMetadata};
 use mobius_core::session::{Session, TerminalHistory};
 use mobius_core::tools;
 use reqwest::Client;
@@ -96,7 +96,73 @@ async fn handle_connection(
             std::process::exit(0);
         }
 
+        // --- LIST SESSIONS ---
+        if request.list_sessions {
+            let session_files = Session::list_all_sessions(request.ppid);
+            let metadata: Vec<SessionMetadata> = session_files
+                .iter()
+                .map(|sf| {
+                    let message_count = if let Ok(data) = std::fs::read_to_string(&sf.path) {
+                        serde_json::from_str::<Session>(&data)
+                            .map(|s| s.messages.len())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    SessionMetadata {
+                        filename: sf.filename.clone(),
+                        path: sf.path.to_string_lossy().to_string(),
+                        preview: sf.preview.clone(),
+                        is_active: sf.is_active,
+                        message_count,
+                    }
+                })
+                .collect();
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(
+                    &DaemonEvent::SessionList(metadata),
+                )?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
+        }
+
         let mut session = Session::load(request.ppid);
+
+        // --- LOAD SESSION (switch to a past session) ---
+        if let Some(ref target_path) = request.load_session {
+            let path = std::path::PathBuf::from(target_path);
+            if path.exists() {
+                if let Ok(data) = std::fs::read_to_string(&path) {
+                    if let Ok(target_session) = serde_json::from_str::<Session>(&data) {
+                        Session::archive_and_reset(request.ppid);
+                        target_session.save(request.ppid);
+                        let messages_json =
+                            serde_json::to_string(&target_session.messages).unwrap_or_default();
+                        let _ = ws_stream
+                            .send(Message::Text(serde_json::to_string(
+                                &DaemonEvent::TextChunk(messages_json),
+                            )?))
+                            .await;
+                        let _ = ws_stream
+                            .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                            .await;
+                        continue;
+                    }
+                }
+            }
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(
+                    &DaemonEvent::Error("Failed to load session".into()),
+                )?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
+        }
 
         // --- NEW SESSION (-n / --new-s) ---
         if request.new_session {

@@ -19,6 +19,10 @@ pub struct IpcRequest {
     pub query_thinking: bool,
     pub shutdown: bool,
     pub record_history: Option<HistoryEntry>,
+    #[serde(default)]
+    pub list_sessions: bool,
+    #[serde(default)]
+    pub load_session: Option<String>,
 }
 
 /// The structured events sent back from the Daemon to the CLI/GUI
@@ -32,4 +36,15 @@ pub enum DaemonEvent {
     TokenUsage { prompt: usize, completion: usize },
     Error(String),
     Done,
+    SessionList(Vec<SessionMetadata>),
+}
+
+/// Serializable session metadata for IPC transport
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SessionMetadata {
+    pub filename: String,
+    pub path: String,
+    pub preview: String,
+    pub is_active: bool,
+    pub message_count: usize,
 }

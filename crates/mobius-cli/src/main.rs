@@ -134,6 +134,8 @@ async fn main() {
         query_thinking,
         shutdown: args.stop_daemon,
         record_history: None,
+        list_sessions: false,
+        load_session: None,
     };
 
     // 5. Exit early if no action/prompt is specified
