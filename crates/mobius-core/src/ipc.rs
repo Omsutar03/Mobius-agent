@@ -23,6 +23,8 @@ pub struct IpcRequest {
     pub list_sessions: bool,
     #[serde(default)]
     pub load_session: Option<String>,
+    #[serde(default)]
+    pub delete_session: Option<String>,
 }
 
 /// The structured events sent back from the Daemon to the CLI/GUI

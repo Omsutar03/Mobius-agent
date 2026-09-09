@@ -6,9 +6,13 @@
   export let isConnected: boolean;
   export let sessions: SessionMetadata[] = [];
   export let onSelectSession: (path: string) => void;
+  export let onDeleteSession: (path: string) => void;
 
   let collapsed = false;
+  let deletingSession: SessionMetadata | null = null;
 </script>
+
+<svelte:window on:keydown={(e) => { if (e.key === "Escape") deletingSession = null; }} />
 
 <aside class="sidebar" class:collapsed>
   <div class="sidebar-header">
@@ -48,15 +52,31 @@
       {:else}
         <div class="sessions-list">
           {#each sessions as s}
-            <button
+            <div
               class="session-item"
               class:active={s.is_active}
+              role="button"
+              tabindex="0"
               title={s.path}
               on:click={() => onSelectSession(s.path)}
+              on:keydown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  onSelectSession(s.path);
+                }
+              }}
             >
               <span class="session-marker" class:active={s.is_active}></span>
               <span class="session-preview">{s.preview}</span>
-            </button>
+              {#if !s.is_active}
+                <button
+                  class="delete-btn"
+                  title="Delete session"
+                  on:click|stopPropagation={() => (deletingSession = s)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -68,6 +88,27 @@
     </div>
   {/if}
 </aside>
+
+{#if deletingSession}
+  {@const target = deletingSession}
+  <div class="modal-backdrop" role="presentation">
+    <div class="modal">
+      <h3 class="modal-title">Delete session?</h3>
+      <p class="modal-text">Are you sure you want to delete this session?</p>
+      <p class="modal-preview">{target.preview}</p>
+      <div class="modal-actions">
+        <button class="modal-cancel" on:click={() => (deletingSession = null)}>Cancel</button>
+        <button
+          class="modal-confirm"
+          on:click={() => {
+            onDeleteSession(target.path);
+            deletingSession = null;
+          }}
+        >Delete</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .sidebar {
@@ -231,6 +272,27 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  .delete-btn {
+    background: transparent;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.1s, color 0.1s;
+  }
+  .session-item:hover .delete-btn {
+    opacity: 1;
+  }
+  .session-item:hover .delete-btn:hover {
+    color: #ef4444;
   }
   .session-info {
     margin-top: auto;
@@ -248,5 +310,75 @@
     border-radius: 4px;
     color: #38bdf8;
     font-family: monospace;
+  }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: #1c1c1f;
+    border: 1px solid #333;
+    border-radius: 10px;
+    padding: 20px;
+    width: 320px;
+    max-width: 90vw;
+    color: #eee;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    text-align: left;
+  }
+  .modal-title {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+    color: #fff;
+  }
+  .modal-text {
+    margin: 0 0 6px 0;
+    font-size: 0.85rem;
+    color: #aaa;
+  }
+  .modal-preview {
+    margin: 0 0 16px 0;
+    font-size: 0.85rem;
+    color: #ddd;
+    background: #111113;
+    border: 1px solid #2a2a2e;
+    border-radius: 6px;
+    padding: 8px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .modal-cancel,
+  .modal-confirm {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: none;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .modal-cancel {
+    background: #2a2a2e;
+    color: #ccc;
+  }
+  .modal-cancel:hover {
+    background: #3a3a3e;
+  }
+  .modal-confirm {
+    background: #dc2626;
+    color: #fff;
+    font-weight: 600;
+  }
+  .modal-confirm:hover {
+    background: #ef4444;
   }
 </style>

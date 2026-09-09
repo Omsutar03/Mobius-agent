@@ -144,6 +144,22 @@ export class DaemonClient {
       callbacks
     );
   }
+
+  public deleteSession(ppid: number, path: string, callbacks: EventCallbacks): boolean {
+    return this.sendRequest(
+      {
+        ppid,
+        prompt: "",
+        new_session: false,
+        query_tokens: false,
+        query_model: false,
+        query_thinking: false,
+        shutdown: false,
+        delete_session: path
+      },
+      callbacks
+    );
+  }
 }
 
 export const daemonClient = new DaemonClient();

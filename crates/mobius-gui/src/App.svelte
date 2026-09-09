@@ -100,6 +100,19 @@
     });
   }
 
+  function handleDeleteSession(path: string) {
+    if (isStreaming) return;
+    daemonClient.deleteSession(activePid, path, {
+      onError: (err) => {
+        messages = [...messages, { role: "assistant", content: `❌ Error deleting session: ${err}` }];
+        scrollToBottom();
+      },
+      onDone: () => {
+        refreshSessions();
+      }
+    });
+  }
+
   function handlePromptSubmit(prompt: string, model: string, thinking: string) {
     messages = [...messages, { role: "user", content: prompt }];
     scrollToBottom();
@@ -178,6 +191,7 @@
     {sessions}
     onNewChat={handleNewChat}
     onSelectSession={handleSelectSession}
+    onDeleteSession={handleDeleteSession}
   />
 
   <section class="chat-viewport">

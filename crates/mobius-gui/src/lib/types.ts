@@ -12,6 +12,7 @@ export interface IpcRequest {
   record_history?: any | null;
   list_sessions?: boolean;
   load_session?: string | null;
+  delete_session?: string | null;
 }
 
 // Matches #[serde(tag = "type", content = "payload")] DaemonEvent JSON serialization

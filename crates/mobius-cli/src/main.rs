@@ -136,6 +136,7 @@ async fn main() {
         record_history: None,
         list_sessions: false,
         load_session: None,
+        delete_session: None,
     };
 
     // 5. Exit early if no action/prompt is specified

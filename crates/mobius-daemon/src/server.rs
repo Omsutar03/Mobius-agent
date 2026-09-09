@@ -137,7 +137,6 @@ async fn handle_connection(
             if path.exists() {
                 if let Ok(data) = std::fs::read_to_string(&path) {
                     if let Ok(target_session) = serde_json::from_str::<Session>(&data) {
-                        Session::archive_and_reset(request.ppid);
                         target_session.save(request.ppid);
                         let messages_json =
                             serde_json::to_string(&target_session.messages).unwrap_or_default();
@@ -158,6 +157,32 @@ async fn handle_connection(
                     &DaemonEvent::Error("Failed to load session".into()),
                 )?))
                 .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
+        }
+
+        // --- DELETE SESSION ---
+        if let Some(ref target_path) = request.delete_session {
+            let path = std::path::PathBuf::from(target_path);
+            let is_active = path
+                .file_name()
+                .map(|f| f.to_string_lossy() == format!("{}.json", request.ppid))
+                .unwrap_or(false);
+            if is_active {
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(
+                        &DaemonEvent::Error("Cannot delete the currently active session".into()),
+                    )?))
+                    .await;
+            } else if let Err(e) = std::fs::remove_file(&path) {
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(
+                        &DaemonEvent::Error(format!("Failed to delete session: {}", e)),
+                    )?))
+                    .await;
+            }
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                 .await;
