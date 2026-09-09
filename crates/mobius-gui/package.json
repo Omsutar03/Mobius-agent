@@ -21,6 +21,8 @@
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-fs": "^2.5.2",
     "marked": "^18.0.12"
   }
 }

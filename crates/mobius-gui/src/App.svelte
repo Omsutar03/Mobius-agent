@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { marked } from "marked";
   import { daemonClient } from "./lib/ws";
   import type { Message, IpcRequest } from "./lib/types";
@@ -12,7 +12,7 @@
 
   let isConnected = false;
   let isStreaming = false;
-  let activePid = Math.floor(Math.random() * 89999) + 10000; // Simulated PID for GUI instance
+  let activePid = Math.floor(Math.random() * 89999) + 10000;
 
   let messages: Message[] = [];
   let promptTokens = 0;
@@ -21,6 +21,15 @@
   let currentThinking = "";
   let currentResponse = "";
   let currentTools: Array<{ tool_name: string; details: string; output?: string }> = [];
+
+  let feedContainer: HTMLElement;
+
+  async function scrollToBottom() {
+    await tick();
+    if (feedContainer) {
+      feedContainer.scrollTop = feedContainer.scrollHeight;
+    }
+  }
 
   onMount(() => {
     daemonClient.connect((connected) => {
@@ -47,6 +56,7 @@
 
   function handlePromptSubmit(prompt: string, model: string, thinking: string) {
     messages = [...messages, { role: "user", content: prompt }];
+    scrollToBottom();
 
     isStreaming = true;
     currentThinking = "";
@@ -56,7 +66,7 @@
     const request: IpcRequest = {
       ppid: activePid,
       prompt,
-      model_override: model, // The updated server.rs will now process this alongside the prompt
+      model_override: model,
       thinking_level_override: thinking === "off" ? null : thinking,
       new_session: false,
       query_tokens: false,
@@ -69,17 +79,21 @@
     daemonClient.sendRequest(request, {
       onThinkingChunk: (chunk) => {
         currentThinking += chunk;
+        scrollToBottom();
       },
       onTextChunk: (chunk) => {
         currentResponse += chunk;
+        scrollToBottom();
       },
       onToolStart: (tool) => {
         currentTools = [...currentTools, tool];
+        scrollToBottom();
       },
       onToolFinished: (tool) => {
         currentTools = currentTools.map((t) =>
           t.tool_name === tool.tool_name ? { ...t, output: tool.output } : t
         );
+        scrollToBottom();
       },
       onTokenUsage: (usage) => {
         promptTokens = usage.prompt;
@@ -99,10 +113,12 @@
         currentResponse = "";
         currentTools = [];
         isStreaming = false;
+        scrollToBottom();
       },
       onError: (err) => {
         messages = [...messages, { role: "assistant", content: `❌ Error: ${err}` }];
         isStreaming = false;
+        scrollToBottom();
       }
     });
   }
@@ -112,10 +128,16 @@
   <Sidebar {activePid} {isConnected} onNewChat={handleNewChat} />
 
   <section class="chat-viewport">
-    <div class="message-feed">
+    <div class="message-feed" bind:this={feedContainer}>
       {#each messages as msg}
         <div class="message-row {msg.role}">
-          <div class="avatar">{msg.role === "user" ? "U" : "M"}</div>
+          <div class="avatar">
+            {#if msg.role === "user"}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            {:else}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+            {/if}
+          </div>
           <div class="message-body">
             {#if msg.thinking}
               <ThinkingBlock content={msg.thinking} />
@@ -136,7 +158,9 @@
 
       {#if isStreaming}
         <div class="message-row assistant streaming">
-          <div class="avatar">M</div>
+          <div class="avatar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+          </div>
           <div class="message-body">
             {#if currentThinking}
               <ThinkingBlock content={currentThinking} />
@@ -164,49 +188,68 @@
 </main>
 
 <style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    background-color: #0d0d0e;
-    color: #e4e4e7;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
   .app-layout {
     display: flex;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
+    background-color: #0d0d0e;
   }
   .chat-viewport {
     flex: 1;
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-width: 0;
   }
   .message-feed {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 24px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
   }
+
   .message-row {
     display: flex;
     gap: 12px;
-    max-width: 850px;
-    margin: 0 auto;
+    max-width: 860px;
     width: 100%;
+    margin: 0 auto;
+    text-align: left;
   }
+
+  .message-row.user {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+  }
+  .message-row.user .message-body {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px 12px 2px 12px;
+    padding: 12px 16px;
+    color: #f8fafc;
+  }
+
+  .message-row.assistant {
+    align-self: flex-start;
+  }
+  .message-row.assistant .message-body {
+    background-color: #161618;
+    border: 1px solid #27272a;
+    border-radius: 12px 12px 12px 2px;
+    padding: 14px 18px;
+    color: #e4e4e7;
+  }
+
   .avatar {
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: bold;
-    font-size: 0.85rem;
     flex-shrink: 0;
   }
   .message-row.user .avatar {
@@ -217,10 +260,12 @@
     background-color: #16a34a;
     color: white;
   }
+
   .message-body {
-    flex: 1;
-    overflow-x: auto;
+    max-width: 88%;
+    word-break: break-word;
   }
+
   .markdown-content {
     line-height: 1.6;
     font-size: 0.95rem;
@@ -228,8 +273,16 @@
   :global(.markdown-content p) {
     margin: 0 0 8px 0;
   }
+  :global(.markdown-content p:last-child) {
+    margin-bottom: 0;
+  }
+  :global(.markdown-content ul, .markdown-content ol) {
+    padding-left: 20px;
+    margin: 8px 0;
+  }
   :global(.markdown-content pre) {
-    background-color: #18181b;
+    background-color: #09090b;
+    border: 1px solid #27272a;
     padding: 12px;
     border-radius: 6px;
     overflow-x: auto;
