@@ -1,11 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HistoryEntry {
-    pub command: String,
-    pub output: String,
-}
-
 /// The payload sent from the CLI/GUI Client to the Background Daemon
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IpcRequest {
@@ -18,7 +12,6 @@ pub struct IpcRequest {
     pub query_model: bool,
     pub query_thinking: bool,
     pub shutdown: bool,
-    pub record_history: Option<HistoryEntry>,
     #[serde(default)]
     pub list_sessions: bool,
     #[serde(default)]

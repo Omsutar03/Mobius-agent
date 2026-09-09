@@ -131,8 +131,7 @@
       query_tokens: false,
       query_model: false,
       query_thinking: false,
-      shutdown: false,
-      record_history: null
+      shutdown: false
     };
 
     daemonClient.sendRequest(request, {

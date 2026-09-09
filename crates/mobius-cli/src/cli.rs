@@ -18,10 +18,8 @@ pub struct CliArgs {
     pub tokens: bool,
     pub thinking_level: Option<FlagAction>,
     pub model: Option<FlagAction>,
-    pub last_lines: Option<usize>,
     pub prompt: String,
-    pub record_cmd: Option<String>, // Hidden flag
-    pub override_pid: Option<u32>,  // Hidden flag
+    pub override_pid: Option<u32>, // Hidden flag
 }
 
 impl CliArgs {
@@ -41,9 +39,7 @@ impl CliArgs {
                 thinking_level: None,
                 model: None,
                 session: None,
-                last_lines: None,
                 prompt: String::new(),
-                record_cmd: None,
                 override_pid: None,
             });
         }
@@ -64,12 +60,8 @@ impl CliArgs {
         let thinking_level = parse_flag_action(&mut par, ["-t", "--thinking"])?; // For toggling thinking level/mode
         let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For checking current model or changing model
         let session = parse_flag_action(&mut par, ["-s", "--session"])?; // For loading past sessions into current one
-        let last_lines = par
-            .opt_value_from_str(["-l", "--last"])
-            .map_err(|e| e.to_string())?; // To let mobius access "N" last i/o of terminal
 
         // Extract hidden flags
-        let record_cmd: Option<String> = par.opt_value_from_str("--record").unwrap_or(None);
         let override_pid: Option<u32> = par.opt_value_from_str("--pid").unwrap_or(None);
 
         // 2. Finish parsing to consume remaining args as prompt
@@ -95,9 +87,7 @@ impl CliArgs {
                 tokens: false,
                 thinking_level: None,
                 model: None,
-                last_lines: None,
                 prompt: String::new(),
-                record_cmd,
                 override_pid,
             });
         }
@@ -112,7 +102,6 @@ impl CliArgs {
             tokens,
             thinking_level.is_some(),
             model.is_some(),
-            last_lines.is_some(),
             session.is_some(),
         ]
         .iter()
@@ -185,9 +174,7 @@ impl CliArgs {
             tokens,
             thinking_level,
             model,
-            last_lines,
             prompt,
-            record_cmd,
             override_pid,
         })
     }
@@ -221,13 +208,11 @@ pub fn print_help() {
           \x1B[1;32m-s, --session [PID]\x1B[0m     Launch interactive session browser (TUI) or switch session PID\n  \
           \x1B[1;32m-m, --model [NAME]\x1B[0m      Query available local models or set provider (llama, ollama, lmstudio)\n  \
           \x1B[1;32m-t, --thinking [LVL]\x1B[0m    Query or set thinking level (off, min, low, med, high, xhigh, max)\n  \
-          \x1B[1;32m-l, --last <N>\x1B[0m          Inject output of last N shell commands into prompt context\n  \
           \x1B[1;32m--tokens\x1B[0m                Check current session context token usage\n  \
           \x1B[1;32m--stop-daemon\x1B[0m           Stop the background Mobius daemon process\n\n\
         \x1B[1;33mEXAMPLES:\x1B[0m\n  \
           mobius \"Explain Tokio async channels\"\n  \
           mobius --gui\n  \
-          mobius -l 3 \"Why did my cargo build fail?\"\n  \
           mobius -s\n  \
           mobius -t high"
     );

@@ -9,7 +9,6 @@ export interface IpcRequest {
   query_model: boolean;
   query_thinking: boolean;
   shutdown: boolean;
-  record_history?: any | null;
   list_sessions?: boolean;
   load_session?: string | null;
   delete_session?: string | null;

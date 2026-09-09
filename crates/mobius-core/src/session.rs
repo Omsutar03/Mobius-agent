@@ -1,6 +1,4 @@
-use crate::ipc::HistoryEntry;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -27,18 +25,13 @@ pub struct Session {
     pub context_window: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionFile {
     pub path: PathBuf,
     pub filename: String,
     pub is_active: bool,
     pub preview: String,
     pub modified: SystemTime,
-}
-
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct TerminalHistory {
-    pub entries: VecDeque<HistoryEntry>,
 }
 
 impl Session {
@@ -134,7 +127,7 @@ impl Session {
                 let filename = entry.file_name().to_string_lossy().to_string();
 
                 // Exclude command history logs and non-json
-                if !filename.ends_with(".json") || filename.ends_with("_history.json") {
+                if !filename.ends_with(".json") {
                     continue;
                 }
 
@@ -205,10 +198,7 @@ impl Session {
     pub fn get_api_messages(&self) -> serde_json::Value {
         let mut api_msgs = vec![serde_json::json!({
             "role": "system",
-            "content": "You are Mobius, an AI agent that lives in the terminal. You should be helpful and concise. You have full access to the host file system, terminal using tools available and recorded terminal history. Your task is to help the user with their queries by replying in a helpful and concise manner.
-
-            TERMINAL HISTORY CONTEXT:
-            - Prompts may contain a section tagged as `[Context: Last N Terminal Commands]`. This section contains real, accurate logs of the user's recent terminal commands and their execution outputs. Always read and refer to this context when asked about past commands or terminal actions.
+            "content": "You are Mobius, an AI agent that lives in the terminal. You should be helpful and concise. You have full access to the host file system, terminal using tools available. Your task is to help the user with their queries by replying in a helpful and concise manner.
 
             You have full access to these 6 tools:
             - `read` to read any local plain-text file (config files, source code, scripts, logs, markdown, json, etc.).
@@ -284,37 +274,5 @@ impl Session {
         }
 
         serde_json::Value::Array(api_msgs)
-    }
-}
-
-impl TerminalHistory {
-    fn get_history_file(ppid: u32) -> PathBuf {
-        Session::get_session_dir().join(format!("{}_history.json", ppid))
-    }
-
-    pub fn load(ppid: u32) -> Self {
-        let path = Self::get_history_file(ppid);
-        if path.exists() {
-            let data = fs::read_to_string(path).unwrap_or_default();
-            serde_json::from_str(&data).unwrap_or_else(|_| TerminalHistory::default())
-        } else {
-            TerminalHistory::default()
-        }
-    }
-
-    pub fn push_entry(&mut self, ppid: u32, command: String, output: String) {
-        if self.entries.len() >= 10 {
-            self.entries.pop_front(); // Maintain max 10 FIFO
-        }
-        self.entries.push_back(HistoryEntry { command, output });
-
-        let path = Self::get_history_file(ppid);
-        let data = serde_json::to_string_pretty(self).unwrap_or_default();
-        let _ = fs::write(path, data);
-    }
-
-    pub fn get_last_n(&self, n: usize) -> Vec<HistoryEntry> {
-        // Reverse to get most recent first, take N, then reverse back to chronological order
-        self.entries.iter().rev().take(n).rev().cloned().collect()
     }
 }

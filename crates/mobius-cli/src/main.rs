@@ -3,7 +3,13 @@ mod ipc_client;
 mod tui;
 
 use mobius_core::ipc::IpcRequest;
-use mobius_core::session::{Session, TerminalHistory};
+use mobius_core::session::Session;
+
+// TODO: The --last / -l flag (terminal command history recall) was removed.
+// The terminal-history recording feature (TerminalHistory, HistoryEntry, record_history,
+// --record / --pid shell hook) all backed it and were removed together. If you want to
+// re-introduce "ask about recent terminal commands", add back the history recorder +
+// hook here and wire it into the prompt in main().
 
 #[tokio::main]
 async fn main() {
@@ -47,7 +53,7 @@ async fn main() {
         }
     }
 
-    let ppid = args.override_pid.unwrap_or_else(std::process::id);
+    let ppid = args.override_pid.unwrap_or_else(|| std::os::unix::process::parent_id());
 
     // --- HANDLE -s / --session (TUI Session Browser or Switching) ---
     if let Some(ref flag) = args.session {
@@ -91,24 +97,6 @@ async fn main() {
         }
     }
 
-    // --- HANDLE -l / --last <N> (Inject recent command history) ---
-    let mut final_prompt = args.prompt.clone();
-    if let Some(n) = args.last_lines {
-        let history = TerminalHistory::load(ppid);
-        let recent_entries = history.get_last_n(n);
-
-        if !recent_entries.is_empty() {
-            let mut recent_str = String::new();
-            for entry in recent_entries {
-                recent_str.push_str(&format!("$ {}\n{}\n", entry.command, entry.output));
-            }
-            final_prompt = format!(
-                "[Context: Last {} Terminal Commands]\n{}\n\nUser Question: {}",
-                n, recent_str, final_prompt
-            );
-        }
-    }
-
     // --- EXTRACT FLAG ACTIONS ---
     let thinking_override = match &args.thinking_level {
         Some(cli::FlagAction::Set(val)) => Some(val.clone()),
@@ -125,7 +113,7 @@ async fn main() {
     // 3. Build the payload for the daemon
     let request = IpcRequest {
         ppid,
-        prompt: final_prompt,
+        prompt: args.prompt,
         thinking_level_override: thinking_override,
         model_override,
         new_session: args.new_session,
@@ -133,7 +121,6 @@ async fn main() {
         query_model,
         query_thinking,
         shutdown: args.stop_daemon,
-        record_history: None,
         list_sessions: false,
         load_session: None,
         delete_session: None,
@@ -241,22 +228,6 @@ async fn main() {
 //             "\x1B[1;36m{}\x1B[0m\x1B[2m/\x1B[0m\x1B[36m{}\x1B[0m | {}{:.2}%\x1B[0m | \x1B[1;35mInput:\x1B[0m \x1B[33m{}\x1B[0m | \x1B[1;35mOutput:\x1B[0m \x1B[33m{}\x1B[0m",
 //             used, total, pct_color, pct, session.last_prompt_tokens, session.last_completion_tokens
 //         );
-//         return;
-//     }
-
-//     if let Some(n) = args.last_lines {
-//         let history = session::TerminalHistory::load(ppid);
-//         let last_n = history.get_last_n(n);
-
-//         println!("Terminal History (-l / --last): [PID {}]", ppid);
-//         if last_n.is_empty() {
-//             println!("  ⚠️ No history recorded yet.");
-//         } else {
-//             for (i, entry) in last_n.iter().enumerate() {
-//                 println!("\n--- [{}] $ {} ---", i + 1, entry.command);
-//                 println!("{}", entry.output.trim());
-//             }
-//         }
 //         return;
 //     }
 

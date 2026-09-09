@@ -3,7 +3,7 @@ use mobius_core::config::MobiusConfig;
 use mobius_core::engine::{ThinkingLevel, ask_mobius};
 use mobius_core::inferences::{InferenceEngine, discover_local_models, get_context_window};
 use mobius_core::ipc::{DaemonEvent, IpcRequest, SessionMetadata};
-use mobius_core::session::{Session, TerminalHistory};
+use mobius_core::session::Session;
 use mobius_core::tools;
 use reqwest::Client;
 use std::time::Duration;
@@ -74,15 +74,7 @@ async fn handle_connection(
             }
         };
 
-        // --- HISTORY RECORDING LOGIC ---
-        if let Some(entry) = request.record_history {
-            let mut history = TerminalHistory::load(request.ppid);
-            history.push_entry(request.ppid, entry.command, entry.output);
-            let _ = ws_stream
-                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
-                .await;
-            continue;
-        }
+        // --- HISTORY RECORDING LOGIC (removed with --last feature) ---
 
         // --- SHUTDOWN LOGIC ---
         if request.shutdown {
