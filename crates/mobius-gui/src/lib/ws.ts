@@ -1,4 +1,4 @@
-import type { IpcRequest, DaemonEvent, SessionMetadata } from "./types";
+import type { IpcRequest, DaemonEvent, SessionMetadata, ModelListEntry } from "./types";
 
 export type EventCallbacks = {
   onThinkingChunk?: (chunk: string) => void;
@@ -18,6 +18,7 @@ export type EventCallbacks = {
   onError?: (error: string) => void;
   onDone?: () => void;
   onSessionList?: (sessions: SessionMetadata[]) => void;
+  onModelList?: (models: ModelListEntry[]) => void;
 };
 
 export class DaemonClient {
@@ -91,6 +92,9 @@ export class DaemonClient {
               break;
             case "SessionList":
               if (cb?.onSessionList) cb.onSessionList(data.payload);
+              break;
+            case "ModelList":
+              if (cb?.onModelList) cb.onModelList(data.payload);
               break;
           }
         };
@@ -191,7 +195,7 @@ export class DaemonClient {
     );
   }
 
-  public queryLlmStatus(ppid: number, provider: string, callbacks: EventCallbacks): boolean {
+  public queryLlmStatus(ppid: number, callbacks: EventCallbacks): boolean {
     return this.sendRequest(
       {
         ppid,
@@ -200,8 +204,37 @@ export class DaemonClient {
         query_model: false,
         query_thinking: false,
         shutdown: false,
-        query_llm_status: true,
-        llm_provider: provider
+        query_llm_status: true
+      },
+      callbacks
+    );
+  }
+
+  public queryModelList(ppid: number, callbacks: EventCallbacks): boolean {
+    return this.sendRequest(
+      {
+        ppid,
+        prompt: "",
+        new_session: false,
+        query_model: false,
+        query_thinking: false,
+        shutdown: false,
+        query_model_list: true
+      },
+      callbacks
+    );
+  }
+
+  public selectModelByIndex(ppid: number, index: number, callbacks: EventCallbacks): boolean {
+    return this.sendRequest(
+      {
+        ppid,
+        prompt: "",
+        new_session: false,
+        query_model: false,
+        query_thinking: false,
+        shutdown: false,
+        model_number: index
       },
       callbacks
     );

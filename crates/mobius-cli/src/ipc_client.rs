@@ -176,6 +176,9 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
                     DaemonEvent::LlmStatus { .. } => {
                         // GUI-only status event - CLI ignores it
                     }
+                    DaemonEvent::ModelList(_) => {
+                        // GUI-only structured model list - CLI uses the text query
+                    }
                     DaemonEvent::Error(err) => {
                         eprintln!("\n\x1b[31m[Daemon Error]: {}\x1b[0m", err);
                     }

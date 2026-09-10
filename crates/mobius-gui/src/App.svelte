@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { marked } from "marked";
   import { daemonClient } from "./lib/ws";
-  import type { Message, IpcRequest, SessionMetadata } from "./lib/types";
+  import type { Message, IpcRequest, SessionMetadata, ModelListEntry } from "./lib/types";
   import { stripToolBlocks } from "./lib/utils/format";
 
   import Sidebar from "./lib/components/Sidebar.svelte";
@@ -14,9 +14,10 @@
   let isStreaming = false;
   let activePid = Math.floor(Math.random() * 89999) + 10000;
 
-  let selectedModel = "llama";
-  let llmConnected = false;
-  let llmModelName: string | null = null;
+let modelOptions: ModelListEntry[] = [];
+let selectedModelIndex = 0;
+let llmConnected = false;
+let llmModelName: string | null = null;
 
   let messages: Message[] = [];
   let sessions: SessionMetadata[] = [];
@@ -52,7 +53,7 @@
 
   function refreshLlmStatus() {
     if (!isConnected) return;
-    daemonClient.queryLlmStatus(activePid, selectedModel, {
+    daemonClient.queryLlmStatus(activePid, {
       onLlmStatus: (status) => {
         llmConnected = status.connected;
         llmModelName = status.model_name;
@@ -64,9 +65,38 @@
     });
   }
 
-  function handleModelChange(m: string) {
-    selectedModel = m;
-    refreshLlmStatus();
+  function refreshModelList() {
+    if (!isConnected) return;
+    daemonClient.queryModelList(activePid, {
+      onModelList: (list) => {
+        modelOptions = list;
+        if (list.length === 0) {
+          selectedModelIndex = 0;
+          return;
+        }
+        const selectedIdx = list.findIndex((m) => m.selected);
+        if (selectedIdx >= 0) {
+          selectedModelIndex = selectedIdx + 1;
+        } else if (selectedModelIndex === 0 || selectedModelIndex > list.length) {
+          selectedModelIndex = 1;
+        }
+      },
+      onError: () => {
+        modelOptions = [];
+      }
+    });
+  }
+
+  function handleModelChange(index: number) {
+    if (index < 1 || index > modelOptions.length) return;
+    selectedModelIndex = index;
+    daemonClient.selectModelByIndex(activePid, index, {
+      onError: () => {},
+      onDone: () => {
+        refreshModelList();
+        refreshLlmStatus();
+      }
+    });
   }
 
   onMount(() => {
@@ -75,12 +105,17 @@
       if (connected) {
         refreshSessions();
         refreshLlmStatus();
+        refreshModelList();
         if (!statusTimer) {
-          statusTimer = window.setInterval(refreshLlmStatus, 5000);
+          statusTimer = window.setInterval(() => {
+            refreshLlmStatus();
+            refreshModelList();
+          }, 5000);
         }
       } else {
         llmConnected = false;
         llmModelName = null;
+        modelOptions = [];
         if (statusTimer) {
           window.clearInterval(statusTimer);
           statusTimer = null;
@@ -148,7 +183,7 @@
     });
   }
 
-  function handlePromptSubmit(prompt: string, model: string, thinking: string) {
+  function handlePromptSubmit(prompt: string, thinking: string) {
     messages = [...messages, { role: "user", content: prompt }];
     scrollToBottom();
 
@@ -160,7 +195,8 @@
     const request: IpcRequest = {
       ppid: activePid,
       prompt,
-      model_override: model,
+      model_number:
+        selectedModelIndex > 0 && selectedModelIndex <= modelOptions.length ? selectedModelIndex : null,
       thinking_level_override: thinking,
       new_session: false,
       query_model: false,
@@ -284,7 +320,8 @@
       {isStreaming}
       {promptTokens}
       {contextWindow}
-      model={selectedModel}
+      modelOptions={modelOptions}
+      modelIndex={selectedModelIndex}
       onModelChange={handleModelChange}
       onSubmit={handlePromptSubmit}
     />

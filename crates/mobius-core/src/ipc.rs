@@ -6,7 +6,6 @@ pub struct IpcRequest {
     pub ppid: u32,
     pub prompt: String,
     pub thinking_level_override: Option<String>,
-    pub model_override: Option<String>,
     pub new_session: bool,
     pub query_model: bool,
     pub query_thinking: bool,
@@ -21,6 +20,10 @@ pub struct IpcRequest {
     pub query_llm_status: bool,
     #[serde(default)]
     pub llm_provider: Option<String>,
+    #[serde(default)]
+    pub model_number: Option<usize>,
+    #[serde(default)]
+    pub query_model_list: bool,
 }
 
 /// The structured events sent back from the Daemon to the CLI/GUI
@@ -40,6 +43,15 @@ pub enum DaemonEvent {
     Error(String),
     Done,
     SessionList(Vec<SessionMetadata>),
+    ModelList(Vec<ModelListEntry>),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelListEntry {
+    pub provider: String,
+    pub model_name: String,
+    pub display_name: String,
+    pub selected: bool,
 }
 
 /// Serializable session metadata for IPC transport

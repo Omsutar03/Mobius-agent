@@ -1,10 +1,13 @@
 <script lang="ts">
-  export let onSubmit: (prompt: string, model: string, thinking: string) => void;
+  import type { ModelListEntry } from "../types";
+
+  export let onSubmit: (prompt: string, thinking: string) => void;
   export let promptTokens: number = 0;
   export let contextWindow: number = 0;
   export let isStreaming: boolean = false;
-  export let model: string = "llama";
-  export let onModelChange: (model: string) => void = () => {};
+  export let modelOptions: ModelListEntry[] = [];
+  export let modelIndex: number = 0;
+  export let onModelChange: (index: number) => void = () => {};
 
   let prompt = "";
   let selectedThinking = "med";
@@ -25,9 +28,14 @@
 
   function send() {
     if (!prompt.trim() || isStreaming) return;
-    onSubmit(prompt, model, selectedThinking);
+    onSubmit(prompt, selectedThinking);
     prompt = "";
     if (textareaEl) textareaEl.style.height = "auto";
+  }
+
+  function handleModelSelect(e: Event) {
+    const val = parseInt((e.currentTarget as HTMLSelectElement).value, 10);
+    onModelChange(Number.isNaN(val) ? 0 : val);
   }
 
   function formatK(num: number) {
@@ -39,10 +47,17 @@
   <div class="settings-strip">
     <div class="setting-pill">
       <span class="label">Model</span>
-      <select bind:value={model} on:change={() => onModelChange(model)}>
-        <option value="llama">llama.cpp (8080)</option>
-        <option value="ollama">Ollama (11434)</option>
-        <option value="lmstudio">LM Studio (1234)</option>
+      <select
+        value={modelIndex}
+        on:change={handleModelSelect}
+        disabled={modelOptions.length === 0}
+      >
+        {#if modelOptions.length === 0}
+          <option value={0}>No models detected</option>
+        {/if}
+        {#each modelOptions as opt, i}
+          <option value={i + 1}>{opt.display_name}</option>
+        {/each}
       </select>
     </div>
 

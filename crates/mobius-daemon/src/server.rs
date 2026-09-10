@@ -2,7 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use mobius_core::config::MobiusConfig;
 use mobius_core::engine::{ThinkingLevel, ask_mobius};
 use mobius_core::inferences::{InferenceEngine, discover_local_models, get_context_window};
-use mobius_core::ipc::{DaemonEvent, IpcRequest, SessionMetadata};
+use mobius_core::ipc::{DaemonEvent, IpcRequest, ModelListEntry, SessionMetadata};
 use mobius_core::session::Session;
 use mobius_core::tools;
 use reqwest::Client;
@@ -196,32 +196,92 @@ async fn handle_connection(
         }
 
         // --- MODEL SELECTION / QUERY (-m / --model) ---
-        if let Some(ref new_model) = request.model_override {
-            session.model_provider = Some(new_model.clone());
-            session.save(request.ppid);
-
-            // Only return early if there is no prompt provided with this request
-            if request.prompt.trim().is_empty() && !request.query_model {
-                let msg = DaemonEvent::TextChunk(format!(
-                    "🔄 Switched model provider to: {}\n",
-                    new_model
-                ));
+        let mut switch_msg: Option<String> = None;
+        if let Some(n) = request.model_number {
+            let active_models = discover_local_models().await;
+            if n > 0 && n <= active_models.len() {
+                let choice = &active_models[n - 1];
+                session.model_provider = Some(choice.engine.as_provider_str().to_string());
+                session.model_name = Some(choice.model_name.clone());
+                session.save(request.ppid);
+                switch_msg = Some(format!("🔄 Switched to [{}] {}\n", n, choice.display_name));
+            } else {
                 let _ = ws_stream
-                    .send(Message::Text(serde_json::to_string(&msg)?))
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Error(format!(
+                        "Invalid model selection: [{}]. Use `mobius -m` to list available models.\n",
+                        n
+                    )))?))
                     .await;
                 let _ = ws_stream
                     .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
                     .await;
-                return Ok(());
+                continue;
             }
+        }
+
+        if request.prompt.trim().is_empty() && !request.query_model && !request.query_model_list {
+            if let Some(msg) = switch_msg {
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::TextChunk(msg))?))
+                    .await;
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                    .await;
+                continue;
+            }
+        }
+
+        if request.query_model_list {
+            let active_models = discover_local_models().await;
+            let list: Vec<ModelListEntry> = active_models
+                .iter()
+                .enumerate()
+                .map(|(i, m)| ModelListEntry {
+                    provider: m.engine.as_provider_str().to_string(),
+                    model_name: m.model_name.clone(),
+                    display_name: format!("[{}] {}", i + 1, m.display_name),
+                    selected: session.model_name.as_deref() == Some(m.model_name.as_str()),
+                })
+                .collect();
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::ModelList(
+                    list,
+                ))?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
         }
 
         if request.query_model {
             let active_models = discover_local_models().await;
-            let current = session.model_provider.as_deref().unwrap_or("llama");
-            let mut list = format!("🤖 Active Provider: {}\n\nAvailable Engines:\n", current);
-            for m in active_models {
-                list.push_str(&format!("  • {:?}: {}\n", m.engine, m.model_name));
+            let current_provider = session.model_provider.as_deref().unwrap_or("llama");
+            let mut list = format!("🤖 Active Provider: {}\n", current_provider);
+            if let Some(ref current_model) = session.model_name {
+                list.push_str(&format!("   Current Model:   {}\n", current_model));
+            }
+            if active_models.is_empty() {
+                list.push_str(
+                    "\n⚠️ No local models detected. Start llama.cpp (8080), Ollama (11434), or LM Studio (1234).\n",
+                );
+            } else {
+                list.push_str("\nAvailable Models:\n");
+                for (i, m) in active_models.iter().enumerate() {
+                    let marker = if session.model_name.as_deref() == Some(m.model_name.as_str()) {
+                        "➡"
+                    } else {
+                        "  "
+                    };
+                    list.push_str(&format!(
+                        "  {} [{}] {}: {}\n",
+                        marker,
+                        i + 1,
+                        m.engine.as_provider_str(),
+                        m.model_name
+                    ));
+                }
+                list.push_str("\nSelect by number, e.g. `mobius -m 2`.\n");
             }
             let msg = DaemonEvent::TextChunk(list);
             let _ = ws_stream
@@ -253,17 +313,16 @@ async fn handle_connection(
                 .as_deref()
                 .or(session.model_provider.as_deref())
                 .unwrap_or("llama");
-            let engine = match provider {
-                "ollama" => InferenceEngine::Ollama,
-                "lmstudio" => InferenceEngine::GenericOpenAI,
-                _ => InferenceEngine::LlamaCpp,
-            };
+            let engine = InferenceEngine::from_provider(provider);
             let active = discover_local_models().await;
             let model_info = active.iter().find(|m| m.engine == engine);
             let status_event = DaemonEvent::LlmStatus {
                 connected: model_info.is_some(),
                 provider: provider.to_string(),
-                model_name: model_info.map(|m| m.model_name.clone()),
+                model_name: session
+                    .model_name
+                    .clone()
+                    .or_else(|| model_info.map(|m| m.model_name.clone())),
             };
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&status_event)?))
@@ -307,17 +366,18 @@ async fn handle_connection(
         session.add_message("user", &request.prompt);
 
         let provider_str = session.model_provider.as_deref().unwrap_or("llama");
-        let engine = match provider_str {
-            "ollama" => InferenceEngine::Ollama,
-            "lmstudio" => InferenceEngine::GenericOpenAI,
-            _ => InferenceEngine::LlamaCpp,
-        };
+        let engine = InferenceEngine::from_provider(provider_str);
 
         let active_models = discover_local_models().await;
-        let model_name = active_models
-            .iter()
-            .find(|m| m.engine == engine)
-            .map(|m| m.model_name.clone())
+        let model_name = session
+            .model_name
+            .clone()
+            .or_else(|| {
+                active_models
+                    .iter()
+                    .find(|m| m.engine == engine)
+                    .map(|m| m.model_name.clone())
+            })
             .unwrap_or_else(|| "default".to_string());
 
         let mut max_tool_turns = 5;
@@ -513,8 +573,9 @@ async fn handle_connection(
         let _ = tx.send(DaemonEvent::Done).await;
         drop(tx);
 
-        let _ws_stream = forward_handle.await?;
-        break;
+        // Hand the sink back and keep the connection open for the next request
+        ws_stream = forward_handle.await?;
+        continue;
     }
 
     Ok(())

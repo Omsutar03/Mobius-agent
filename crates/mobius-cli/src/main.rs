@@ -130,8 +130,8 @@ async fn main() {
     };
     let query_thinking = matches!(&args.thinking_level, Some(cli::FlagAction::Query));
 
-    let model_override = match &args.model {
-        Some(cli::FlagAction::Set(val)) => Some(val.clone()),
+    let model_number = match &args.model {
+        Some(cli::FlagAction::Set(val)) => val.parse::<usize>().ok(),
         _ => None,
     };
     let query_model = matches!(&args.model, Some(cli::FlagAction::Query));
@@ -141,9 +141,10 @@ async fn main() {
         ppid,
         prompt: args.prompt,
         thinking_level_override: thinking_override,
-        model_override,
+        model_number,
         new_session: args.new_session,
         query_model,
+        query_model_list: false,
         query_thinking,
         shutdown: args.stop_daemon,
         list_sessions: false,
@@ -160,7 +161,7 @@ async fn main() {
         || request.query_model
         || request.query_thinking
         || request.thinking_level_override.is_some()
-        || request.model_override.is_some();
+        || request.model_number.is_some();
 
     if !has_action {
         cli::print_help();

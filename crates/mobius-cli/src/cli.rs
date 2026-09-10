@@ -55,8 +55,17 @@ impl CliArgs {
         let help = par.contains(["-h", "--help"]);
         let new_session = par.contains(["-n", "--new-s"]); // For new chat session in same TTY session.
         let thinking_level = parse_flag_action(&mut par, ["-t", "--thinking"])?; // For toggling thinking level/mode
-        let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For checking current model or changing model
+        let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For querying models or selecting one by number
         let session = parse_flag_action(&mut par, ["-s", "--session"])?; // For loading past sessions into current one
+
+        // -m only supports numbered selection now (provider keyword selection removed)
+        if let Some(FlagAction::Set(val)) = &model {
+            if val.parse::<usize>().is_err() {
+                return Err(format!(
+                    "Invalid model selection: '{val}'. Use `mobius -m` to list available models, then `mobius -m <number>`."
+                ));
+            }
+        }
 
         // Extract hidden flags
         let override_pid: Option<u32> = par.opt_value_from_str("--pid").unwrap_or(None);
@@ -192,7 +201,7 @@ pub fn print_help() {
           \x1B[1;32m--gui\x1B[0m                   Launch the desktop GUI frontend\n  \
           \x1B[1;32m-n, --new-s\x1B[0m             Archive current session & start fresh\n  \
           \x1B[1;32m-s, --session [PID]\x1B[0m     Launch interactive session browser (TUI) or switch session PID\n  \
-          \x1B[1;32m-m, --model [NAME]\x1B[0m      Query available local models or set provider (llama, ollama, lmstudio)\n  \
+          \x1B[1;32m-m, --model [NUM]\x1B[0m      Query available models or select one by number (e.g. `mobius -m 2`)\n  \
           \x1B[1;32m-t, --thinking [LVL]\x1B[0m    Query or set thinking level (off, min, low, med, high, xhigh, max)\n  \
           \x1B[1;32m--stop-daemon\x1B[0m           Stop the background Mobius daemon process\n\n\
         \x1B[1;33mEXAMPLES:\x1B[0m\n  \

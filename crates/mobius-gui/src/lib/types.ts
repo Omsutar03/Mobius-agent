@@ -3,7 +3,6 @@ export interface IpcRequest {
   ppid: number;
   prompt: string;
   thinking_level_override?: string | null;
-  model_override?: string | null;
   new_session: boolean;
   query_model: boolean;
   query_thinking: boolean;
@@ -13,6 +12,8 @@ export interface IpcRequest {
   delete_session?: string | null;
   query_llm_status?: boolean;
   llm_provider?: string | null;
+  model_number?: number | null;
+  query_model_list?: boolean;
 }
 
 // Matches #[serde(tag = "type", content = "payload")] DaemonEvent JSON serialization
@@ -28,7 +29,16 @@ export type DaemonEvent =
     }
   | { type: "Error"; payload: string }
   | { type: "Done" }
-  | { type: "SessionList"; payload: SessionMetadata[] };
+  | { type: "SessionList"; payload: SessionMetadata[] }
+  | { type: "ModelList"; payload: ModelListEntry[] };
+
+// Matches mobius_core::ipc::ModelListEntry
+export interface ModelListEntry {
+  provider: string;
+  model_name: string;
+  display_name: string;
+  selected: boolean;
+}
 
 export interface Message {
   role: "user" | "assistant";

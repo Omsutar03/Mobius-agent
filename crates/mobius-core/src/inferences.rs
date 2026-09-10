@@ -12,6 +12,22 @@ pub enum InferenceEngine {
 }
 
 impl InferenceEngine {
+    pub fn as_provider_str(&self) -> &'static str {
+        match self {
+            InferenceEngine::LlamaCpp => "llama",
+            InferenceEngine::Ollama => "ollama",
+            InferenceEngine::GenericOpenAI => "lmstudio",
+        }
+    }
+
+    pub fn from_provider(provider: &str) -> Self {
+        match provider {
+            "ollama" => InferenceEngine::Ollama,
+            "lmstudio" => InferenceEngine::GenericOpenAI,
+            _ => InferenceEngine::LlamaCpp,
+        }
+    }
+
     pub fn get_url(&self) -> &'static str {
         match self {
             InferenceEngine::LlamaCpp => "http://localhost:8080/v1/chat/completions",
@@ -117,11 +133,11 @@ pub async fn discover_local_models() -> Vec<ModelInfo> {
     for (engine, url, label) in endpoints {
         if let Ok(res) = client.get(url).send().await {
             if let Ok(json) = res.json::<ModelsResponse>().await {
-                if let Some(first_model) = json.data.first() {
+                for model in json.data {
                     active_models.push(ModelInfo {
-                        engine,
-                        model_name: first_model.id.clone(),
-                        display_name: format!("{}: {}", label, first_model.id),
+                        engine: engine.clone(),
+                        model_name: model.id.clone(),
+                        display_name: format!("{}: {}", label, model.id),
                     });
                 }
             }

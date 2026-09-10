@@ -18,6 +18,8 @@ pub struct Session {
     #[serde(default)]
     pub model_provider: Option<String>,
     #[serde(default)]
+    pub model_name: Option<String>,
+    #[serde(default)]
     pub last_prompt_tokens: usize,
     #[serde(default)]
     pub last_completion_tokens: usize,

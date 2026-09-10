@@ -10,7 +10,7 @@
   export let onSelectSession: (path: string) => void;
   export let onDeleteSession: (path: string) => void;
 
-  let collapsed = false;
+  let collapsed = true;
   let deletingSession: SessionMetadata | null = null;
 
   $: statusLabel = isConnected && llmConnected ? "Connected" : "Disconnected";
@@ -30,17 +30,6 @@
         {/if}
       </div>
     </div>
-    <button
-      class="collapse-btn"
-      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      on:click={() => (collapsed = !collapsed)}
-    >
-      {#if collapsed}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-      {:else}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
-      {/if}
-    </button>
   </div>
 
   {#if !collapsed}
@@ -94,6 +83,18 @@
       <span class="pid-badge">{activePid}</span>
     </div>
   {/if}
+
+  <button
+    class="collapse-btn"
+    title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+    on:click={() => (collapsed = !collapsed)}
+  >
+    {#if collapsed}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+    {:else}
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+    {/if}
+  </button>
 </aside>
 
 {#if deletingSession}
@@ -119,6 +120,7 @@
 
 <style>
   .sidebar {
+    position: relative;
     width: 240px;
     background-color: #111113;
     border-right: 1px solid #222;
@@ -127,7 +129,6 @@
     padding: 16px;
     gap: 16px;
     transition: width 0.2s ease;
-    overflow: hidden;
     flex-shrink: 0;
   }
   .sidebar.collapsed {
@@ -173,21 +174,30 @@
     background-color: #4caf50;
   }
   .collapse-btn {
-    background: transparent;
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 64px;
     border: 1px solid #2a2a2e;
-    border-radius: 6px;
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+    background: #1c1c1f;
     color: #888;
     cursor: pointer;
-    padding: 4px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    z-index: 5;
+    box-shadow: 3px 0 8px rgba(0, 0, 0, 0.35);
   }
   .collapse-btn:hover {
     color: #fff;
     border-color: #3a3a3e;
-    background: #1c1c1f;
+    background: #26262a;
   }
   .new-chat-btn {
     width: 100%;
