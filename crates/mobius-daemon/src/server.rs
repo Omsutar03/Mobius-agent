@@ -246,6 +246,34 @@ async fn handle_connection(
             continue;
         }
 
+        // --- LLM PROVIDER STATUS (GUI sidebar) ---
+        if request.query_llm_status {
+            let provider = request
+                .llm_provider
+                .as_deref()
+                .or(session.model_provider.as_deref())
+                .unwrap_or("llama");
+            let engine = match provider {
+                "ollama" => InferenceEngine::Ollama,
+                "lmstudio" => InferenceEngine::GenericOpenAI,
+                _ => InferenceEngine::LlamaCpp,
+            };
+            let active = discover_local_models().await;
+            let model_info = active.iter().find(|m| m.engine == engine);
+            let status_event = DaemonEvent::LlmStatus {
+                connected: model_info.is_some(),
+                provider: provider.to_string(),
+                model_name: model_info.map(|m| m.model_name.clone()),
+            };
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&status_event)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
+        }
+
         // Ignore empty prompts if no command action was specified
         if request.prompt.trim().is_empty() {
             let _ = ws_stream

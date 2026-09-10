@@ -3,9 +3,10 @@
   export let promptTokens: number = 0;
   export let contextWindow: number = 0;
   export let isStreaming: boolean = false;
+  export let model: string = "llama";
+  export let onModelChange: (model: string) => void = () => {};
 
   let prompt = "";
-  let selectedModel = "llama";
   let selectedThinking = "med";
   let textareaEl: HTMLTextAreaElement;
 
@@ -24,7 +25,7 @@
 
   function send() {
     if (!prompt.trim() || isStreaming) return;
-    onSubmit(prompt, selectedModel, selectedThinking);
+    onSubmit(prompt, model, selectedThinking);
     prompt = "";
     if (textareaEl) textareaEl.style.height = "auto";
   }
@@ -38,7 +39,7 @@
   <div class="settings-strip">
     <div class="setting-pill">
       <span class="label">Model</span>
-      <select bind:value={selectedModel}>
+      <select bind:value={model} on:change={() => onModelChange(model)}>
         <option value="llama">llama.cpp (8080)</option>
         <option value="ollama">Ollama (11434)</option>
         <option value="lmstudio">LM Studio (1234)</option>

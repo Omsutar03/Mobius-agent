@@ -11,6 +11,8 @@ export interface IpcRequest {
   list_sessions?: boolean;
   load_session?: string | null;
   delete_session?: string | null;
+  query_llm_status?: boolean;
+  llm_provider?: string | null;
 }
 
 // Matches #[serde(tag = "type", content = "payload")] DaemonEvent JSON serialization
@@ -20,6 +22,10 @@ export type DaemonEvent =
   | { type: "ToolStart"; payload: { tool_name: string; details: string } }
   | { type: "ToolFinished"; payload: { result: string } }
   | { type: "TokenUsage"; payload: { prompt: number; completion: number; context_window: number } }
+  | {
+      type: "LlmStatus";
+      payload: { connected: boolean; provider: string; model_name: string | null };
+    }
   | { type: "Error"; payload: string }
   | { type: "Done" }
   | { type: "SessionList"; payload: SessionMetadata[] };

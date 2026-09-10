@@ -14,6 +14,10 @@
   let isStreaming = false;
   let activePid = Math.floor(Math.random() * 89999) + 10000;
 
+  let selectedModel = "llama";
+  let llmConnected = false;
+  let llmModelName: string | null = null;
+
   let messages: Message[] = [];
   let sessions: SessionMetadata[] = [];
   let promptTokens = 0;
@@ -44,11 +48,43 @@
     });
   }
 
+  let statusTimer: number | null = null;
+
+  function refreshLlmStatus() {
+    if (!isConnected) return;
+    daemonClient.queryLlmStatus(activePid, selectedModel, {
+      onLlmStatus: (status) => {
+        llmConnected = status.connected;
+        llmModelName = status.model_name;
+      },
+      onError: () => {
+        llmConnected = false;
+        llmModelName = null;
+      }
+    });
+  }
+
+  function handleModelChange(m: string) {
+    selectedModel = m;
+    refreshLlmStatus();
+  }
+
   onMount(() => {
     daemonClient.connect((connected) => {
       isConnected = connected;
       if (connected) {
         refreshSessions();
+        refreshLlmStatus();
+        if (!statusTimer) {
+          statusTimer = window.setInterval(refreshLlmStatus, 5000);
+        }
+      } else {
+        llmConnected = false;
+        llmModelName = null;
+        if (statusTimer) {
+          window.clearInterval(statusTimer);
+          statusTimer = null;
+        }
       }
     });
   });
@@ -185,6 +221,8 @@
   <Sidebar
     {activePid}
     {isConnected}
+    llmConnected={llmConnected}
+    llmModelName={llmModelName}
     {sessions}
     onNewChat={handleNewChat}
     onSelectSession={handleSelectSession}
@@ -246,6 +284,8 @@
       {isStreaming}
       {promptTokens}
       {contextWindow}
+      model={selectedModel}
+      onModelChange={handleModelChange}
       onSubmit={handlePromptSubmit}
     />
   </section>

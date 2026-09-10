@@ -17,6 +17,10 @@ pub struct IpcRequest {
     pub load_session: Option<String>,
     #[serde(default)]
     pub delete_session: Option<String>,
+    #[serde(default)]
+    pub query_llm_status: bool,
+    #[serde(default)]
+    pub llm_provider: Option<String>,
 }
 
 /// The structured events sent back from the Daemon to the CLI/GUI
@@ -28,6 +32,11 @@ pub enum DaemonEvent {
     ToolStart { tool_name: String, details: String },
     ToolFinished { result: String },
     TokenUsage { prompt: usize, completion: usize, context_window: usize },
+    LlmStatus {
+        connected: bool,
+        provider: String,
+        model_name: Option<String>,
+    },
     Error(String),
     Done,
     SessionList(Vec<SessionMetadata>),

@@ -149,6 +149,8 @@ async fn main() {
         list_sessions: false,
         load_session: None,
         delete_session: None,
+        query_llm_status: false,
+        llm_provider: None,
     };
 
     // 5. Exit early if no action/prompt is specified

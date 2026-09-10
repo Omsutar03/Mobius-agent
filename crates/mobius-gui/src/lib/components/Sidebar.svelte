@@ -4,12 +4,16 @@
   export let activePid: number;
   export let onNewChat: () => void;
   export let isConnected: boolean;
+  export let llmConnected: boolean = false;
+  export let llmModelName: string | null = null;
   export let sessions: SessionMetadata[] = [];
   export let onSelectSession: (path: string) => void;
   export let onDeleteSession: (path: string) => void;
 
   let collapsed = false;
   let deletingSession: SessionMetadata | null = null;
+
+  $: statusLabel = isConnected && llmConnected ? "Connected" : "Disconnected";
 </script>
 
 <svelte:window on:keydown={(e) => { if (e.key === "Escape") deletingSession = null; }} />
@@ -19,8 +23,11 @@
     <div class="header-text">
       <h2>Mobius Agent</h2>
       <div class="status-indicator">
-        <span class="dot" class:connected={isConnected}></span>
-        <span class="status-text">{isConnected ? "Connected" : "Disconnected"}</span>
+        <span class="dot" class:connected={isConnected && llmConnected}></span>
+        <span class="status-text">{statusLabel}</span>
+        {#if isConnected && llmConnected && llmModelName}
+          <span class="status-model">{llmModelName}</span>
+        {/if}
       </div>
     </div>
     <button
@@ -147,6 +154,14 @@
     gap: 6px;
     font-size: 0.75rem;
     color: #888;
+  }
+  .status-model {
+    color: #4caf50;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .dot {
     width: 8px;
