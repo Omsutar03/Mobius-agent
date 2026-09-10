@@ -1,13 +1,101 @@
 use futures_util::{SinkExt, StreamExt};
 use mobius_core::ipc::{DaemonEvent, IpcRequest};
 use std::io::Write;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+const WS_URL: &str = "ws://127.0.0.1:43812";
+const MAX_START_ATTEMPTS: u32 = 40;
+const START_RETRY_DELAY: Duration = Duration::from_millis(100);
+const BASH_START_DELAY: Duration = Duration::from_millis(500);
+
+/// Locates the `mobius-daemon` binary: first next to the current executable
+/// (so `cargo run`, debug, and release builds all work), then on PATH.
+fn find_daemon_binary() -> Option<std::path::PathBuf> {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sibling = dir.join("mobius-daemon");
+            if sibling.exists() {
+                return Some(sibling);
+            }
+        }
+    }
+    // Fall back to a PATH lookup
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("mobius-daemon");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Returns true if a Mobius daemon is already listening on the default port.
+async fn daemon_is_up() -> bool {
+    match tokio::net::TcpStream::connect("127.0.0.1:43812").await {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+/// Returns true if a Mobius daemon is already listening on the default port.
+pub async fn daemon_running() -> bool {
+    daemon_is_up().await
+}
+
+/// Spawns the daemon as a detached background service (stdout/stderr/stdin nulled)
+/// and returns once it is accepting connections on the default port.
+pub async fn spawn_daemon_detached() -> Result<(), String> {
+    let daemon = find_daemon_binary().ok_or_else(|| {
+        "Could not find the 'mobius-daemon' binary. Is the daemon crate built? Try: cargo build -p mobius-daemon"
+            .to_string()
+    })?;
+
+    match std::process::Command::new(&daemon)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(_) => {
+            // Wait (bounded) for the daemon's listening socket to appear
+            let mut attempts = 0;
+            while !daemon_is_up().await && attempts < MAX_START_ATTEMPTS {
+                sleep(START_RETRY_DELAY).await;
+                attempts += 1;
+            }
+            // Extra grace for the WebSocket accept loop to spin up
+            sleep(BASH_START_DELAY).await;
+
+            if daemon_is_up().await {
+                Ok(())
+            } else {
+                Err("Daemon failed to start or bind port in time.".to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to auto-spawn daemon '{}': {}", daemon.display(), e)),
+    }
+}
+
 pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::error::Error>> {
-    let ws_url = "ws://127.0.0.1:43812";
+    // Auto-start the daemon first if it isn't already running (unless we are
+    // explicitly trying to stop it - never spawn a daemon just to kill it).
+    if !request.shutdown && !daemon_is_up().await {
+        spawn_daemon_detached().await.map_err(|e| {
+            format!(
+                "❌ Mobius daemon is not running. Failed to auto-start it: {}. \
+                 You can also start it manually in another terminal with: cargo run -p mobius-daemon",
+                e
+            )
+        })?;
+    }
 
     // Connect to the WebSocket daemon
-    let (mut ws_stream, _) = connect_async(ws_url).await.map_err(|e| {
+    let (mut ws_stream, _) = connect_async(WS_URL).await.map_err(|e| {
         format!(
             "❌ Failed to connect to Mobius Daemon. Is it running? ({})",
             e

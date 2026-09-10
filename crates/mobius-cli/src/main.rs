@@ -28,9 +28,35 @@ async fn main() {
         return;
     }
 
+    // --- HANDLE --start-daemon (hidden flag) ---
+    // Spawns the background daemon as a detached service and returns.
+    if args.start_daemon {
+        if ipc_client::daemon_running().await {
+            println!("🚀 Mobius daemon is already running.");
+            return;
+        }
+        match ipc_client::spawn_daemon_detached().await {
+            Ok(_) => {
+                println!("🚀 Mobius daemon started.");
+                return;
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to start Mobius daemon: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     // --- HANDLE --gui FLAG ---
     if args.gui {
         println!("🚀 Launching Mobius GUI...");
+
+        // Ensure the background daemon is up so the GUI can connect on startup
+        if !ipc_client::daemon_running().await {
+            if let Err(e) = ipc_client::spawn_daemon_detached().await {
+                eprintln!("⚠️  Could not auto-start daemon for GUI: {}", e);
+            }
+        }
 
         // Look for the mobius-gui binary next to current executable target directory
         let current_exe = std::env::current_exe().ok();
@@ -144,7 +170,6 @@ async fn main() {
     // 6. Send request over WebSocket to the daemon
     if let Err(e) = ipc_client::send_to_daemon(request).await {
         eprintln!("{}", e);
-        eprintln!("Please start the daemon in another terminal with: cargo run -p mobius-daemon");
     }
 }
 

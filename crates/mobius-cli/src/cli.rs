@@ -10,7 +10,7 @@ pub enum FlagAction {
 #[derive(Debug)]
 pub struct CliArgs {
     pub help: bool,
-    pub daemon_mode: bool, // Hidden flag
+    pub start_daemon: bool, // Hidden flag: start the background daemon
     pub stop_daemon: bool,
     pub new_session: bool,
     pub gui: bool,
@@ -31,7 +31,7 @@ impl CliArgs {
         if help {
             return Ok(CliArgs {
                 help: true,
-                daemon_mode: false,
+                start_daemon: false,
                 stop_daemon: false,
                 new_session: false,
                 gui: false,
@@ -45,7 +45,7 @@ impl CliArgs {
         }
 
         // Check for daemon mode first
-        let daemon_mode = par.contains("--daemon-mode");
+        let start_daemon = par.contains("--start-daemon");
 
         // Flag for stopping daemon
         let stop_daemon = par.contains("--stop-daemon");
@@ -76,10 +76,10 @@ impl CliArgs {
         let has_prompt = !prompt.is_empty();
 
         // If running in daemon mode, bypass normal CLI validation
-        if daemon_mode {
+        if start_daemon {
             return Ok(CliArgs {
                 help: false,
-                daemon_mode,
+                start_daemon,
                 stop_daemon: false,
                 new_session: false,
                 gui: false,
@@ -166,7 +166,7 @@ impl CliArgs {
 
         Ok(CliArgs {
             help,
-            daemon_mode,
+            start_daemon,
             stop_daemon,
             new_session,
             gui,
