@@ -11,6 +11,17 @@ const MAX_START_ATTEMPTS: u32 = 40;
 const START_RETRY_DELAY: Duration = Duration::from_millis(100);
 const BASH_START_DELAY: Duration = Duration::from_millis(500);
 
+/// Formats a token count as K/M with one decimal, e.g. 52340 -> "52.3K".
+fn fmt_tokens(n: usize) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}K", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
 /// Locates the `mobius-daemon` binary: first next to the current executable
 /// (so `cargo run`, debug, and release builds all work), then on PATH.
 fn find_daemon_binary() -> Option<std::path::PathBuf> {
@@ -77,7 +88,11 @@ pub async fn spawn_daemon_detached() -> Result<(), String> {
                 Err("Daemon failed to start or bind port in time.".to_string())
             }
         }
-        Err(e) => Err(format!("Failed to auto-spawn daemon '{}': {}", daemon.display(), e)),
+        Err(e) => Err(format!(
+            "Failed to auto-spawn daemon '{}': {}",
+            daemon.display(),
+            e
+        )),
     }
 }
 
@@ -107,6 +122,7 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
     ws_stream.send(Message::Text(req_json)).await?;
 
     let mut stdout = std::io::stdout();
+    let mut mobius_prefix_printed = false;
 
     // Stream and render events
     while let Some(msg) = ws_stream.next().await {
@@ -120,6 +136,11 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
                         let _ = stdout.flush();
                     }
                     DaemonEvent::TextChunk(chunk) => {
+                        // Prepend "Mobius: " (bold green) before the first response chunk
+                        if !mobius_prefix_printed {
+                            print!("\x1b[1;32mMobius: \x1b[0m");
+                            mobius_prefix_printed = true;
+                        }
                         // Standard terminal text
                         print!("{}", chunk);
                         let _ = stdout.flush();
@@ -134,10 +155,21 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
                     DaemonEvent::ToolFinished { .. } => {
                         // Tool finished (silently wait for the model's follow-up)
                     }
-                    DaemonEvent::TokenUsage { prompt, completion } => {
+                    DaemonEvent::TokenUsage {
+                        prompt,
+                        completion: _,
+                        context_window,
+                    } => {
+                        let pct = if context_window > 0 {
+                            prompt as f64 * 100.0 / context_window as f64
+                        } else {
+                            0.0
+                        };
                         print!(
-                            "\n\n\x1b[90m[Tokens Used: Prompt {}, Completion {}]\x1b[0m\n",
-                            prompt, completion
+                            "\n\n\x1b[90mContext: {:.1}% ({}/{})\x1b[0m\n",
+                            pct,
+                            fmt_tokens(prompt),
+                            fmt_tokens(context_window),
                         );
                         let _ = stdout.flush();
                     }

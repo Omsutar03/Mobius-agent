@@ -5,7 +5,11 @@ export type EventCallbacks = {
   onTextChunk?: (chunk: string) => void;
   onToolStart?: (tool: { tool_name: string; details: string }) => void;
   onToolFinished?: (tool: { tool_name: string; output: string }) => void;
-  onTokenUsage?: (usage: { prompt: number; completion: number }) => void;
+  onTokenUsage?: (usage: {
+    prompt: number;
+    completion: number;
+    context_window: number;
+  }) => void;
   onError?: (error: string) => void;
   onDone?: () => void;
   onSessionList?: (sessions: SessionMetadata[]) => void;
@@ -119,7 +123,6 @@ export class DaemonClient {
         ppid,
         prompt: "",
         new_session: false,
-        query_tokens: false,
         query_model: false,
         query_thinking: false,
         shutdown: false,
@@ -135,7 +138,6 @@ export class DaemonClient {
         ppid,
         prompt: "",
         new_session: false,
-        query_tokens: false,
         query_model: false,
         query_thinking: false,
         shutdown: false,
@@ -151,7 +153,6 @@ export class DaemonClient {
         ppid,
         prompt: "",
         new_session: false,
-        query_tokens: false,
         query_model: false,
         query_thinking: false,
         shutdown: false,

@@ -143,7 +143,6 @@ async fn main() {
         thinking_level_override: thinking_override,
         model_override,
         new_session: args.new_session,
-        query_tokens: args.tokens,
         query_model,
         query_thinking,
         shutdown: args.stop_daemon,
@@ -156,7 +155,6 @@ async fn main() {
     let has_action = !request.prompt.is_empty()
         || request.shutdown
         || request.new_session
-        || request.query_tokens
         || request.query_model
         || request.query_thinking
         || request.thinking_level_override.is_some()
@@ -222,37 +220,6 @@ async fn main() {
 //                 }
 //             }
 //         }
-//         return;
-//     }
-
-//     if args.tokens {
-//         let session = session::Session::load(ppid);
-
-//         let used = session.last_prompt_tokens + session.last_completion_tokens;
-//         let total = if session.context_window > 0 {
-//             session.context_window
-//         } else {
-//             8192
-//         };
-//         let pct = if total > 0 {
-//             (used as f64 / total as f64) * 100.0
-//         } else {
-//             0.0
-//         };
-
-//         // Dynamic warning colors based on usage capacity
-//         let pct_color = if pct > 85.0 {
-//             "\x1B[1;31m" // Bold Red
-//         } else if pct > 60.0 {
-//             "\x1B[1;33m" // Bold Yellow
-//         } else {
-//             "\x1B[1;32m" // Bold Green
-//         };
-
-//         println!(
-//             "\x1B[1;36m{}\x1B[0m\x1B[2m/\x1B[0m\x1B[36m{}\x1B[0m | {}{:.2}%\x1B[0m | \x1B[1;35mInput:\x1B[0m \x1B[33m{}\x1B[0m | \x1B[1;35mOutput:\x1B[0m \x1B[33m{}\x1B[0m",
-//             used, total, pct_color, pct, session.last_prompt_tokens, session.last_completion_tokens
-//         );
 //         return;
 //     }
 

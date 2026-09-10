@@ -17,7 +17,7 @@
   let messages: Message[] = [];
   let sessions: SessionMetadata[] = [];
   let promptTokens = 0;
-  let completionTokens = 0;
+  let contextWindow = 0;
 
   let currentThinking = "";
   let currentResponse = "";
@@ -59,7 +59,6 @@
       ppid: activePid,
       prompt: "",
       new_session: true,
-      query_tokens: false,
       query_model: false,
       query_thinking: false,
       shutdown: false
@@ -68,7 +67,7 @@
       onDone: () => {
         messages = [];
         promptTokens = 0;
-        completionTokens = 0;
+        contextWindow = 0;
         refreshSessions();
       }
     });
@@ -128,7 +127,6 @@
       model_override: model,
       thinking_level_override: thinking,
       new_session: false,
-      query_tokens: false,
       query_model: false,
       query_thinking: false,
       shutdown: false
@@ -155,7 +153,7 @@
       },
       onTokenUsage: (usage) => {
         promptTokens = usage.prompt;
-        completionTokens = usage.completion;
+        contextWindow = usage.context_window;
       },
       onDone: () => {
         messages = [
@@ -247,7 +245,7 @@
     <ControlBar
       {isStreaming}
       {promptTokens}
-      {completionTokens}
+      {contextWindow}
       onSubmit={handlePromptSubmit}
     />
   </section>

@@ -195,22 +195,6 @@ async fn handle_connection(
             continue;
         }
 
-        // --- QUERY TOKENS (--tokens) ---
-        if request.query_tokens {
-            let info = format!(
-                "📊 Session Context Tokens:\n  Last Prompt: {}\n  Last Completion: {}\n  Context Limit: {}\n",
-                session.last_prompt_tokens, session.last_completion_tokens, session.context_window
-            );
-            let msg = DaemonEvent::TextChunk(info);
-            let _ = ws_stream
-                .send(Message::Text(serde_json::to_string(&msg)?))
-                .await;
-            let _ = ws_stream
-                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
-                .await;
-            continue;
-        }
-
         // --- MODEL SELECTION / QUERY (-m / --model) ---
         if let Some(ref new_model) = request.model_override {
             session.model_provider = Some(new_model.clone());
@@ -338,8 +322,9 @@ async fn handle_connection(
 
             let _ = tx
                 .send(DaemonEvent::TokenUsage {
-                    prompt: usage.prompt_tokens,
-                    completion: usage.completion_tokens,
+                    prompt: session.last_prompt_tokens,
+                    completion: session.last_completion_tokens,
+                    context_window: session.context_window,
                 })
                 .await;
 

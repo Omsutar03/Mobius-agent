@@ -1,7 +1,7 @@
 <script lang="ts">
   export let onSubmit: (prompt: string, model: string, thinking: string) => void;
   export let promptTokens: number = 0;
-  export let completionTokens: number = 0;
+  export let contextWindow: number = 0;
   export let isStreaming: boolean = false;
 
   let prompt = "";
@@ -30,7 +30,7 @@
   }
 
   function formatK(num: number) {
-    return num >= 1000 ? (num / 1000).toFixed(1) + "k" : num.toString();
+    return num >= 1000 ? (num / 1000).toFixed(1).replace(/\.0$/, "") + "K" : num.toString();
   }
 </script>
 
@@ -58,8 +58,9 @@
     </div>
 
     <div class="token-badges">
-      <span class="tok-pill in">▲ {formatK(promptTokens)}</span>
-      <span class="tok-pill out">▼ {formatK(completionTokens)}</span>
+      <span class="tok-pill in" title="Current context window usage">
+        Context: {contextWindow > 0 ? ((promptTokens / contextWindow) * 100).toFixed(1) : "0.0"}% ({formatK(promptTokens)}/{formatK(contextWindow)})
+      </span>
     </div>
   </div>
 
@@ -150,8 +151,7 @@
     background: #18181b;
     border: 1px solid #27272a;
   }
-  .tok-pill.in { color: #38bdf8; }
-  .tok-pill.out { color: #4ade80; }
+  .tok-pill { color: #38bdf8; }
 
   /* Unified Prompt Box */
   .prompt-card {

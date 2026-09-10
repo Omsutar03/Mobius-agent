@@ -15,7 +15,6 @@ pub struct CliArgs {
     pub new_session: bool,
     pub gui: bool,
     pub session: Option<FlagAction>,
-    pub tokens: bool,
     pub thinking_level: Option<FlagAction>,
     pub model: Option<FlagAction>,
     pub prompt: String,
@@ -35,7 +34,6 @@ impl CliArgs {
                 stop_daemon: false,
                 new_session: false,
                 gui: false,
-                tokens: false,
                 thinking_level: None,
                 model: None,
                 session: None,
@@ -56,7 +54,6 @@ impl CliArgs {
         // 1. Extract all flags
         let help = par.contains(["-h", "--help"]);
         let new_session = par.contains(["-n", "--new-s"]); // For new chat session in same TTY session.
-        let tokens = par.contains("--tokens"); // For checking token count
         let thinking_level = parse_flag_action(&mut par, ["-t", "--thinking"])?; // For toggling thinking level/mode
         let model = parse_flag_action(&mut par, ["-m", "--model"])?; // For checking current model or changing model
         let session = parse_flag_action(&mut par, ["-s", "--session"])?; // For loading past sessions into current one
@@ -84,7 +81,6 @@ impl CliArgs {
                 new_session: false,
                 gui: false,
                 session: None,
-                tokens: false,
                 thinking_level: None,
                 model: None,
                 prompt: String::new(),
@@ -99,7 +95,6 @@ impl CliArgs {
             stop_daemon,
             new_session,
             gui,
-            tokens,
             thinking_level.is_some(),
             model.is_some(),
             session.is_some(),
@@ -149,15 +144,7 @@ impl CliArgs {
             return Err("The model flag (-m / --model) is strictly for querying or switching models. Do not pass a prompt with it.".to_string());
         }
 
-        // G: --tokens MUST be standalone
-        if tokens && has_prompt {
-            return Err(
-                "The `--tokens` flag must be used on its own. Do not pass a prompt with it."
-                    .to_string(),
-            );
-        }
-
-        // H: MUST be standalone
+        // G: MUST be standalone
         if session.is_some() && has_prompt {
             return Err(
                 "The `-s` / `--session` flag is strictly for querying or switching sessions. Do not pass a prompt with it.".to_string(),
@@ -171,7 +158,6 @@ impl CliArgs {
             new_session,
             gui,
             session,
-            tokens,
             thinking_level,
             model,
             prompt,
@@ -208,7 +194,6 @@ pub fn print_help() {
           \x1B[1;32m-s, --session [PID]\x1B[0m     Launch interactive session browser (TUI) or switch session PID\n  \
           \x1B[1;32m-m, --model [NAME]\x1B[0m      Query available local models or set provider (llama, ollama, lmstudio)\n  \
           \x1B[1;32m-t, --thinking [LVL]\x1B[0m    Query or set thinking level (off, min, low, med, high, xhigh, max)\n  \
-          \x1B[1;32m--tokens\x1B[0m                Check current session context token usage\n  \
           \x1B[1;32m--stop-daemon\x1B[0m           Stop the background Mobius daemon process\n\n\
         \x1B[1;33mEXAMPLES:\x1B[0m\n  \
           mobius \"Explain Tokio async channels\"\n  \

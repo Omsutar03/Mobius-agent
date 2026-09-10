@@ -5,7 +5,6 @@ export interface IpcRequest {
   thinking_level_override?: string | null;
   model_override?: string | null;
   new_session: boolean;
-  query_tokens: boolean;
   query_model: boolean;
   query_thinking: boolean;
   shutdown: boolean;
@@ -20,7 +19,7 @@ export type DaemonEvent =
   | { type: "TextChunk"; payload: string }
   | { type: "ToolStart"; payload: { tool_name: string; details: string } }
   | { type: "ToolFinished"; payload: { result: string } }
-  | { type: "TokenUsage"; payload: { prompt: number; completion: number } }
+  | { type: "TokenUsage"; payload: { prompt: number; completion: number; context_window: number } }
   | { type: "Error"; payload: string }
   | { type: "Done" }
   | { type: "SessionList"; payload: SessionMetadata[] };
