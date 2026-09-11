@@ -127,9 +127,9 @@
     on:click={() => (collapsed = !collapsed)}
   >
     {#if collapsed}
-      <Icon name="chevron-right" size={16} />
+      <Icon name="chevron-right" size={14} />
     {:else}
-      <Icon name="chevron-left" size={16} />
+      <Icon name="chevron-left" size={14} />
     {/if}
   </button>
 </aside>
@@ -262,14 +262,12 @@
 
   .collapse-btn {
     position: absolute;
-    right: -14px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 22px;
-    height: 56px;
+    right: -12px;
+    top: 20px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
     border: 1px solid var(--border-strong);
-    border-left: none;
-    border-radius: 0 var(--radius-md) var(--radius-md) 0;
     background: var(--bg-elevated);
     color: var(--text-muted);
     cursor: pointer;
@@ -277,14 +275,31 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
     z-index: 5;
-    box-shadow: 3px 0 12px rgba(0, 0, 0, 0.35);
-    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+    transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+      border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
   }
   .collapse-btn:hover {
     color: var(--text-primary);
     background: var(--bg-hover);
+    border-color: var(--accent-border);
+    box-shadow: 0 1px 8px rgba(124, 58, 237, 0.35), 0 0 0 3px rgba(139, 92, 246, 0.12);
+  }
+  .collapse-btn:active {
+    transform: scale(0.92);
+  }
+  .sidebar.collapsed .collapse-btn {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 88px;
+  }
+  .sidebar.collapsed .collapse-btn:active {
+    transform: translateX(-50%) scale(0.92);
+  }
+  .sidebar.collapsed .collapsed-model {
+    margin-top: 14px;
   }
 
   .new-chat-btn {
