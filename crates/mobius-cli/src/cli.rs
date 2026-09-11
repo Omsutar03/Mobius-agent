@@ -1,4 +1,5 @@
 // TODO: -t and -m value checks
+use mobius_core::engine::ThinkingLevel;
 use pico_args::{Arguments, Error};
 
 #[derive(Debug, PartialEq)]
@@ -63,6 +64,21 @@ impl CliArgs {
             if val.parse::<usize>().is_err() {
                 return Err(format!(
                     "Invalid model selection: '{val}'. Use `mobius -m` to list available models, then `mobius -m <number>`."
+                ));
+            }
+        }
+
+        // -t accepts a number (index into the listed levels) or a level name
+        if let Some(FlagAction::Set(val)) = &thinking_level {
+            if let Ok(n) = val.parse::<usize>() {
+                if n >= ThinkingLevel::ALL.len() {
+                    return Err(format!(
+                        "Invalid thinking level: '{val}'. Use `mobius -t` to list available levels, then `mobius -t <number>`."
+                    ));
+                }
+            } else if ThinkingLevel::from_str(val).is_none() {
+                return Err(format!(
+                    "Invalid thinking level: '{val}'. Use `mobius -t` to list available levels (off, min, low, med, high, xhigh, max)."
                 ));
             }
         }

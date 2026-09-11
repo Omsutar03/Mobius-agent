@@ -137,11 +137,17 @@ pub async fn send_to_daemon(request: IpcRequest) -> Result<(), Box<dyn std::erro
                     }
                     DaemonEvent::TextChunk(chunk) => {
                         // Prepend "Mobius: " (bold green) before the first response chunk
+                        // (TextChunk now only carries the LLM's streamed response)
                         if !mobius_prefix_printed {
                             print!("\x1b[1;32mMobius: \x1b[0m");
                             mobius_prefix_printed = true;
                         }
                         // Standard terminal text
+                        print!("{}", chunk);
+                        let _ = stdout.flush();
+                    }
+                    DaemonEvent::Info(chunk) => {
+                        // Daemon informational messages: print plainly, no prefix
                         print!("{}", chunk);
                         let _ = stdout.flush();
                     }

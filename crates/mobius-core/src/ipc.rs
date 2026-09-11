@@ -32,6 +32,7 @@ pub struct IpcRequest {
 pub enum DaemonEvent {
     ThinkingChunk(String),
     TextChunk(String),
+    Info(String),
     ToolStart { tool_name: String, details: String },
     ToolFinished { result: String },
     TokenUsage { prompt: usize, completion: usize, context_window: usize },

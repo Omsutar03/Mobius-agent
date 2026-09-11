@@ -78,7 +78,7 @@ async fn handle_connection(
 
         // --- SHUTDOWN LOGIC ---
         if request.shutdown {
-            let msg_event = DaemonEvent::TextChunk("Mobius daemon shutting down...\n".into());
+            let msg_event = DaemonEvent::Info("Mobius daemon shutting down...\n".into());
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&msg_event)?))
                 .await;
@@ -185,7 +185,7 @@ async fn handle_connection(
         if request.new_session {
             Session::archive_and_reset(request.ppid);
             let msg =
-                DaemonEvent::TextChunk("✨ Started fresh session for this terminal.\n".into());
+                DaemonEvent::Info("✨ Started fresh session for this terminal.\n".into());
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&msg)?))
                 .await;
@@ -222,7 +222,7 @@ async fn handle_connection(
         if request.prompt.trim().is_empty() && !request.query_model && !request.query_model_list {
             if let Some(msg) = switch_msg {
                 let _ = ws_stream
-                    .send(Message::Text(serde_json::to_string(&DaemonEvent::TextChunk(msg))?))
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Info(msg))?))
                     .await;
                 let _ = ws_stream
                     .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
@@ -283,7 +283,7 @@ async fn handle_connection(
                 }
                 list.push_str("\nSelect by number, e.g. `mobius -m 2`.\n");
             }
-            let msg = DaemonEvent::TextChunk(list);
+            let msg = DaemonEvent::Info(list);
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&msg)?))
                 .await;
@@ -296,7 +296,39 @@ async fn handle_connection(
         // --- THINKING LEVEL QUERY (-t / --thinking) ---
         if request.query_thinking {
             let current = session.thinking_level.as_deref().unwrap_or("off");
-            let msg = DaemonEvent::TextChunk(format!("🧠 Current Thinking Level: {}\n", current));
+            let mut list = format!("🧠 Current Thinking Level: {}\n\n", current);
+            list.push_str("Available Levels:\n");
+            for (i, level) in ThinkingLevel::ALL.iter().enumerate() {
+                let marker = if level.as_str() == current { "➡" } else { "  " };
+                list.push_str(&format!("  {} [{}] {}\n", marker, i, level.as_str()));
+            }
+            let msg = DaemonEvent::Info(list);
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&msg)?))
+                .await;
+            let _ = ws_stream
+                .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                .await;
+            continue;
+        }
+
+        // --- THINKING LEVEL SET (standalone -t <value>) ---
+        if request.thinking_level_override.is_some() && request.prompt.trim().is_empty() {
+            let level = request.thinking_level_override.as_deref().unwrap_or("off");
+            if ThinkingLevel::from_str(level).is_none() {
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Error(
+                        format!("Invalid thinking level: '{}'. Use `mobius -t` to list available levels.\n", level),
+                    ))?))
+                    .await;
+                let _ = ws_stream
+                    .send(Message::Text(serde_json::to_string(&DaemonEvent::Done)?))
+                    .await;
+                continue;
+            }
+            session.thinking_level = Some(level.to_string());
+            session.save(request.ppid);
+            let msg = DaemonEvent::Info(format!("🧠 Thinking level set to: {}\n", level));
             let _ = ws_stream
                 .send(Message::Text(serde_json::to_string(&msg)?))
                 .await;

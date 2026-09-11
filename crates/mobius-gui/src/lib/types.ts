@@ -20,6 +20,7 @@ export interface IpcRequest {
 export type DaemonEvent =
   | { type: "ThinkingChunk"; payload: string }
   | { type: "TextChunk"; payload: string }
+  | { type: "Info"; payload: string }
   | { type: "ToolStart"; payload: { tool_name: string; details: string } }
   | { type: "ToolFinished"; payload: { result: string } }
   | { type: "TokenUsage"; payload: { prompt: number; completion: number; context_window: number } }

@@ -38,6 +38,28 @@ impl ThinkingLevel {
             ThinkingLevel::Max => (true, "max"),
         }
     }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThinkingLevel::Off => "off",
+            ThinkingLevel::Minimal => "min",
+            ThinkingLevel::Low => "low",
+            ThinkingLevel::Medium => "med",
+            ThinkingLevel::High => "high",
+            ThinkingLevel::XHigh => "xhigh",
+            ThinkingLevel::Max => "max",
+        }
+    }
+
+    pub const ALL: [ThinkingLevel; 7] = [
+        ThinkingLevel::Off,
+        ThinkingLevel::Minimal,
+        ThinkingLevel::Low,
+        ThinkingLevel::Medium,
+        ThinkingLevel::High,
+        ThinkingLevel::XHigh,
+        ThinkingLevel::Max,
+    ];
 }
 
 #[derive(Debug, Default, Clone, Copy)]

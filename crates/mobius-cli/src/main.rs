@@ -2,6 +2,7 @@ mod cli;
 mod ipc_client;
 mod tui;
 
+use mobius_core::engine::ThinkingLevel;
 use mobius_core::ipc::IpcRequest;
 use mobius_core::session::Session;
 
@@ -125,7 +126,13 @@ async fn main() {
 
     // --- EXTRACT FLAG ACTIONS ---
     let thinking_override = match &args.thinking_level {
-        Some(cli::FlagAction::Set(val)) => Some(val.clone()),
+        Some(cli::FlagAction::Set(val)) => {
+            if let Ok(n) = val.parse::<usize>() {
+                ThinkingLevel::ALL.get(n).map(|l| l.as_str().to_string())
+            } else {
+                Some(val.clone())
+            }
+        }
         _ => None,
     };
     let query_thinking = matches!(&args.thinking_level, Some(cli::FlagAction::Query));
