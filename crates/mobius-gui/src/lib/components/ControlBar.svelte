@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ModelListEntry } from "../types";
+  import Icon from "./Icon.svelte";
 
   export let onSubmit: (prompt: string, thinking: string) => void;
   export let promptTokens: number = 0;
@@ -12,6 +13,10 @@
   let prompt = "";
   let selectedThinking = "med";
   let textareaEl: HTMLTextAreaElement;
+
+  $: contextPct =
+    contextWindow > 0 ? Math.min((promptTokens / contextWindow) * 100, 100) : 0;
+  $: contextLevel = contextPct >= 90 ? "critical" : contextPct >= 70 ? "warning" : "ok";
 
   function handleInput() {
     if (!textareaEl) return;
@@ -45,8 +50,9 @@
 
 <div class="control-bar">
   <div class="settings-strip">
-    <div class="setting-pill">
-      <span class="label">Model</span>
+    <label class="setting-pill">
+      <Icon name="cpu" size={13} />
+      <span class="pill-label">Model</span>
       <select
         value={modelIndex}
         on:change={handleModelSelect}
@@ -59,10 +65,11 @@
           <option value={i + 1}>{opt.display_name}</option>
         {/each}
       </select>
-    </div>
+    </label>
 
-    <div class="setting-pill">
-      <span class="label">Thinking</span>
+    <label class="setting-pill">
+      <Icon name="sparkles" size={13} />
+      <span class="pill-label">Thinking</span>
       <select bind:value={selectedThinking}>
         <option value="off">Off</option>
         <option value="min">Minimal</option>
@@ -71,22 +78,34 @@
         <option value="high">High</option>
         <option value="max">Max</option>
       </select>
-    </div>
+    </label>
 
-    <div class="token-badges">
-      <span class="tok-pill in" title="Current context window usage">
-        Context: {contextWindow > 0 ? ((promptTokens / contextWindow) * 100).toFixed(1) : "0.0"}% ({formatK(promptTokens)}/{formatK(contextWindow)})
+    <div
+      class="token-pill"
+      class:warning={contextLevel === "warning"}
+      class:critical={contextLevel === "critical"}
+      title="Context window usage"
+    >
+      <Icon name="activity" size={13} />
+      <span>
+        Context: {contextPct.toFixed(1)}%
+        <span class="token-frac">({formatK(promptTokens)}/{formatK(contextWindow)})</span>
       </span>
     </div>
   </div>
 
   <div class="prompt-card">
+    <div class="context-track" aria-hidden="true">
+      <div class="context-fill {contextLevel}" style="width:{contextPct}%"></div>
+    </div>
+
     <textarea
       bind:this={textareaEl}
       bind:value={prompt}
       on:input={handleInput}
       on:keydown={handleKeydown}
-      placeholder="Ask Mobius anything... (Shift+Enter for new line)"
+      placeholder="Ask Mobius anything..."
+      aria-label="Message"
       rows="1"
       disabled={isStreaming}
     ></textarea>
@@ -94,146 +113,246 @@
     <button
       type="button"
       class="send-btn"
+      class:streaming={isStreaming}
       on:click={send}
       disabled={isStreaming || !prompt.trim()}
-      aria-label="Send message"
+      aria-label={isStreaming ? "Waiting for response" : "Send message"}
+      title={isStreaming ? "Waiting for response" : "Send message"}
     >
       {#if isStreaming}
-        <span class="spinner"></span>
+        <span class="spinner" aria-hidden="true"></span>
       {:else}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="12" y1="19" x2="12" y2="5"></line>
-          <polyline points="5 12 12 5 19 12"></polyline>
-        </svg>
+        <Icon name="send" size={17} />
       {/if}
     </button>
+  </div>
+
+  <div class="hint-row" aria-hidden="true">
+    <span><kbd>Enter</kbd> to send</span>
+    <span class="hint-sep">·</span>
+    <span><kbd>Shift</kbd> + <kbd>Enter</kbd> new line</span>
   </div>
 </div>
 
 <style>
   .control-bar {
-    padding: 12px 20px 18px;
-    background-color: #0d0d0e;
+    padding: 14px 24px 16px;
+    background: var(--bg-base);
     display: flex;
     flex-direction: column;
     gap: 8px;
     max-width: 860px;
     margin: 0 auto;
     width: 100%;
+    border-top: 1px solid var(--border);
   }
+
   .settings-strip {
     display: flex;
-    gap: 10px;
+    gap: 8px;
     align-items: center;
     font-size: 0.78rem;
+    flex-wrap: wrap;
   }
+
   .setting-pill {
     display: flex;
     align-items: center;
-    gap: 6px;
-    background: #18181b;
-    border: 1px solid #27272a;
-    padding: 3px 8px;
-    border-radius: 6px;
-    color: #71717a;
+    gap: 7px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: border-color var(--dur-fast) var(--ease);
   }
-  .setting-pill .label {
-    font-size: 0.7rem;
+  .setting-pill:hover {
+    border-color: var(--border-strong);
+  }
+  .setting-pill:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .pill-label {
+    font-size: 0.66rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
   }
+
   select {
     background: transparent;
     border: none;
-    color: #f4f4f5;
+    color: var(--text-secondary);
     font-size: 0.78rem;
     outline: none;
     cursor: pointer;
+    font-family: inherit;
+    max-width: 200px;
+  }
+  select:disabled {
+    color: var(--text-faint);
+    cursor: not-allowed;
   }
   select option {
-    background: #18181b;
-    color: #f4f4f5;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
   }
-  .token-badges {
+
+  .token-pill {
     margin-left: auto;
     display: flex;
+    align-items: center;
     gap: 6px;
-  }
-  .tok-pill {
-    font-family: ui-monospace, Consolas, monospace;
+    font-family: var(--mono);
     font-size: 0.72rem;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: #18181b;
-    border: 1px solid #27272a;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--info);
+    white-space: nowrap;
   }
-  .tok-pill { color: #38bdf8; }
+  .token-pill.warning {
+    color: var(--warning);
+  }
+  .token-pill.critical {
+    color: var(--error);
+  }
+  .token-frac {
+    color: var(--text-muted);
+  }
 
-  /* Unified Prompt Box */
+  /* ── Prompt card ────────────────────────────────────────────────────────── */
   .prompt-card {
     position: relative;
     display: flex;
     align-items: flex-end;
-    background: #18181b;
-    border: 1px solid #27272a;
-    border-radius: 10px;
-    padding: 8px 12px;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: 10px 12px 10px 16px;
+    overflow: hidden;
+    transition: border-color var(--dur-med) var(--ease), box-shadow var(--dur-med) var(--ease);
   }
   .prompt-card:focus-within {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18), 0 4px 24px rgba(124, 58, 237, 0.12);
   }
+
+  .context-track {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--bg-active);
+  }
+  .context-fill {
+    height: 100%;
+    background: var(--info);
+    transition: width var(--dur-slow) var(--ease);
+  }
+  .context-fill.warning {
+    background: var(--warning);
+  }
+  .context-fill.critical {
+    background: var(--error);
+  }
+
   textarea {
     flex: 1;
     background: transparent;
     border: none;
     outline: none;
-    color: #f4f4f5;
+    color: var(--text-primary);
     resize: none;
     font-family: inherit;
-    font-size: 0.92rem;
-    line-height: 1.45;
+    font-size: 0.94rem;
+    line-height: 1.5;
     max-height: 180px;
-    padding: 4px 36px 4px 0;
+    padding: 6px 44px 6px 0;
   }
   textarea::placeholder {
-    color: #52525b;
+    color: var(--text-faint);
   }
+  textarea:disabled {
+    color: var(--text-muted);
+    cursor: wait;
+  }
+
   .send-btn {
     position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 32px;
-    height: 32px;
-    background-color: #3b82f6;
+    right: 10px;
+    bottom: 10px;
+    width: 34px;
+    height: 34px;
+    background: var(--brand-gradient);
     border: none;
-    border-radius: 6px;
-    color: white;
+    border-radius: var(--radius-md);
+    color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: background-color 0.15s ease, opacity 0.15s ease;
+    transition: filter var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+      transform var(--dur-fast) var(--ease);
+    box-shadow: 0 2px 10px rgba(124, 58, 237, 0.35);
   }
   .send-btn:hover:not(:disabled) {
-    background-color: #2563eb;
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.45);
+  }
+  .send-btn:active:not(:disabled) {
+    transform: translateY(0);
   }
   .send-btn:disabled {
-    background-color: #27272a;
-    color: #52525b;
+    background: var(--bg-active);
+    color: var(--text-faint);
+    box-shadow: none;
     cursor: not-allowed;
+  }
+  .send-btn.streaming {
+    background: var(--bg-active);
+    color: var(--text-secondary);
   }
 
   .spinner {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
     border: 2px solid rgba(255, 255, 255, 0.2);
-    border-top-color: white;
+    border-top-color: var(--text-secondary);
     border-radius: 50%;
-    animation: spin 0.6s linear infinite;
+    animation: spin 0.7s linear infinite;
   }
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .hint-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.68rem;
+    color: var(--text-faint);
+    padding: 0 4px;
+  }
+  .hint-row kbd {
+    font-family: var(--mono);
+    font-size: 0.64rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 4px;
+    color: var(--text-muted);
+  }
+  .hint-sep {
+    opacity: 0.5;
   }
 </style>

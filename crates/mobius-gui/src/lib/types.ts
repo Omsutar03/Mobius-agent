@@ -45,6 +45,7 @@ export interface Message {
   content: string;
   thinking?: string;
   tools?: Array<{ tool_name: string; details: string; output?: string }>;
+  error?: boolean;
 }
 
 // Matches mobius_core::ipc::SessionMetadata

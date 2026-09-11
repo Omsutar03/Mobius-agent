@@ -9,15 +9,17 @@
   import ControlBar from "./lib/components/ControlBar.svelte";
   import ThinkingBlock from "./lib/components/ThinkingBlock.svelte";
   import ToolBadge from "./lib/components/ToolBadge.svelte";
+  import Icon from "./lib/components/Icon.svelte";
+  import MobiusLogo from "./lib/components/MobiusLogo.svelte";
 
   let isConnected = false;
   let isStreaming = false;
   let activePid = Math.floor(Math.random() * 89999) + 10000;
 
-let modelOptions: ModelListEntry[] = [];
-let selectedModelIndex = 0;
-let llmConnected = false;
-let llmModelName: string | null = null;
+  let modelOptions: ModelListEntry[] = [];
+  let selectedModelIndex = 0;
+  let llmConnected = false;
+  let llmModelName: string | null = null;
 
   let messages: Message[] = [];
   let sessions: SessionMetadata[] = [];
@@ -29,6 +31,12 @@ let llmModelName: string | null = null;
   let currentTools: Array<{ tool_name: string; details: string; output?: string }> = [];
 
   let feedContainer: HTMLElement;
+
+  const suggestions = [
+    "What is Mobius and what can it do?",
+    "Explain this project's architecture",
+    "Write a git commit message for my latest changes"
+  ];
 
   async function scrollToBottom() {
     await tick();
@@ -155,13 +163,12 @@ let llmModelName: string | null = null;
             content: m.content
           }));
         } catch {
-          // Not JSON - treat as a simple confirmation and start empty
           messages = [];
         }
         scrollToBottom();
       },
       onError: (err) => {
-        messages = [...messages, { role: "assistant", content: `❌ Error loading session: ${err}` }];
+        messages = [{ role: "assistant", content: `Failed to load that session.`, error: true }];
         scrollToBottom();
       },
       onDone: () => {
@@ -174,7 +181,7 @@ let llmModelName: string | null = null;
     if (isStreaming) return;
     daemonClient.deleteSession(activePid, path, {
       onError: (err) => {
-        messages = [...messages, { role: "assistant", content: `❌ Error deleting session: ${err}` }];
+        messages = [...messages, { role: "assistant", content: `Failed to delete session.`, error: true }];
         scrollToBottom();
       },
       onDone: () => {
@@ -245,7 +252,7 @@ let llmModelName: string | null = null;
         scrollToBottom();
       },
       onError: (err) => {
-        messages = [...messages, { role: "assistant", content: `❌ Error: ${err}` }];
+        messages = [...messages, { role: "assistant", content: `Something went wrong: ${err}`, error: true }];
         isStreaming = false;
         scrollToBottom();
       }
@@ -267,29 +274,64 @@ let llmModelName: string | null = null;
 
   <section class="chat-viewport">
     <div class="message-feed" bind:this={feedContainer}>
+      {#if messages.length === 0 && !isStreaming}
+        <div class="empty-state">
+<div class="empty-logo">
+          <MobiusLogo size={34} strokeWidth={30} />
+        </div>
+          <h1 class="empty-title">Mobius</h1>
+          <p class="empty-sub">
+            {#if !llmConnected}
+              The LLM isn't connected yet. Make sure the daemon is running, then pick a model below.
+            {:else}
+              Your local AI agent, ready when you are.
+            {/if}
+          </p>
+          <div class="empty-suggestions">
+            {#each suggestions as s}
+              <button class="suggestion-chip" on:click={() => handlePromptSubmit(s, "med")}>
+                <span class="chip-icon">
+                  <Icon name="sparkles" size={14} />
+                </span>
+                <span>{s}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       {#each messages as msg}
-        <div class="message-row {msg.role}">
+        <div class="message-row {msg.role}" class:error={msg.error}>
           <div class="avatar">
             {#if msg.role === "user"}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+              <Icon name="user" size={16} />
             {:else}
-              <svg width="16" height="16" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"><path d="M18 229.515C21.2635 134.81 142.198 93.2816 180.979 187.467C195.038 221.61 210.522 251.92 246.051 267.464C333.518 305.729 393.176 116.751 302.765 122.394C251.811 125.574 208.948 179.579 194.981 195.639"/><path d="M149.434 240.392C109 279.486 18 307.832 18 229.515"/><path d="M37.1055 226.335C37.1055 197.114 78.025 155.804 109.938 165.378C132.376 172.109 133.181 192.625 140.981 211.346C146.734 225.152 157.577 240.74 166.652 252.539C178.928 268.496 194.755 285.777 212.62 295.522C263.494 323.271 326.382 311.12 356.495 259.106C385.15 209.612 406.234 97.071 320.743 91.2672C261.088 87.2188 214.162 129.867 178.773 172.515"/><path d="M134 216.986C101.429 248.437 84.0354 253.729 75.3616 254.674C45.7149 257.581 37 242.986 37 223.975"/></svg>
+              <MobiusLogo size={20} strokeWidth={30} />
             {/if}
           </div>
           <div class="message-body">
-            {#if msg.thinking}
-              <ThinkingBlock content={msg.thinking} />
-            {/if}
+            {#if msg.error}
+              <div class="error-banner" role="alert">
+                <span class="banner-icon">
+                  <Icon name="alert" size={16} />
+                </span>
+                <span>{msg.content}</span>
+              </div>
+            {:else}
+              {#if msg.thinking}
+                <ThinkingBlock content={msg.thinking} />
+              {/if}
 
-            {#if msg.tools}
-              {#each msg.tools as tool}
-                <ToolBadge toolName={tool.tool_name} details={tool.details} output={tool.output} />
-              {/each}
-            {/if}
+              {#if msg.tools}
+                {#each msg.tools as tool}
+                  <ToolBadge toolName={tool.tool_name} details={tool.details} output={tool.output} />
+                {/each}
+              {/if}
 
-            <div class="markdown-content">
-              {@html marked.parse(stripToolBlocks(msg.content))}
-            </div>
+              <div class="markdown-content">
+                {@html marked.parse(msg.content)}
+              </div>
+            {/if}
           </div>
         </div>
       {/each}
@@ -297,7 +339,7 @@ let llmModelName: string | null = null;
       {#if isStreaming}
         <div class="message-row assistant streaming">
           <div class="avatar">
-            <svg width="16" height="16" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"><path d="M18 229.515C21.2635 134.81 142.198 93.2816 180.979 187.467C195.038 221.61 210.522 251.92 246.051 267.464C333.518 305.729 393.176 116.751 302.765 122.394C251.811 125.574 208.948 179.579 194.981 195.639"/><path d="M149.434 240.392C109 279.486 18 307.832 18 229.515"/><path d="M37.1055 226.335C37.1055 197.114 78.025 155.804 109.938 165.378C132.376 172.109 133.181 192.625 140.981 211.346C146.734 225.152 157.577 240.74 166.652 252.539C178.928 268.496 194.755 285.777 212.62 295.522C263.494 323.271 326.382 311.12 356.495 259.106C385.15 209.612 406.234 97.071 320.743 91.2672C261.088 87.2188 214.162 129.867 178.773 172.515"/><path d="M134 216.986C101.429 248.437 84.0354 253.729 75.3616 254.674C45.7149 257.581 37 242.986 37 223.975"/></svg>
+            <MobiusLogo size={20} strokeWidth={30} />
           </div>
           <div class="message-body">
             {#if currentThinking}
@@ -308,9 +350,16 @@ let llmModelName: string | null = null;
               <ToolBadge toolName={tool.tool_name} details={tool.details} output={tool.output} />
             {/each}
 
-            <div class="markdown-content">
-              {@html marked.parse(stripToolBlocks(currentResponse) || "...")}
-            </div>
+            {#if currentResponse}
+              <div class="markdown-content">
+                {@html marked.parse(stripToolBlocks(currentResponse))}
+                <span class="typing-caret" aria-hidden="true"></span>
+              </div>
+            {:else}
+              <div class="typing-indicator" aria-label="Assistant is thinking">
+                <span></span><span></span><span></span>
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
@@ -334,7 +383,7 @@ let llmModelName: string | null = null;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background-color: #0d0d0e;
+    background-color: var(--bg-base);
   }
   .chat-viewport {
     flex: 1;
@@ -343,13 +392,18 @@ let llmModelName: string | null = null;
     height: 100%;
     min-width: 0;
   }
+
+  /* ── Message feed ───────────────────────────────────────────────────────── */
   .message-feed {
     flex: 1;
     overflow-y: auto;
-    padding: 24px;
+    padding: 32px 28px 24px;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 22px;
+    background:
+      radial-gradient(1200px 400px at 50% -10%, rgba(124, 58, 237, 0.08), transparent 70%),
+      var(--bg-base);
   }
 
   .message-row {
@@ -365,67 +419,299 @@ let llmModelName: string | null = null;
     align-self: flex-end;
     flex-direction: row-reverse;
   }
-  .message-row.user .message-body {
-    background-color: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 12px 12px 2px 12px;
-    padding: 12px 16px;
-    color: #f8fafc;
-  }
-
-  .message-row.assistant {
-    align-self: flex-start;
-  }
-  .message-row.assistant .message-body {
-    background-color: #161618;
-    border: 1px solid #27272a;
-    border-radius: 12px 12px 12px 2px;
-    padding: 14px 18px;
-    color: #e4e4e7;
-  }
 
   .avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    margin-top: 2px;
+    box-shadow: var(--shadow-elevated);
   }
   .message-row.user .avatar {
-    background-color: #0284c7;
-    color: white;
+    background: var(--bg-active);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
   }
   .message-row.assistant .avatar {
-    background-color: #16a34a;
-    color: white;
+    background: var(--brand-gradient);
+    border: 1px solid var(--accent-border);
+    color: #fff;
   }
 
   .message-body {
     max-width: 88%;
+    min-width: 0;
     word-break: break-word;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
-  .markdown-content {
+  /* User bubble */
+  .message-row.user .message-body {
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.22), rgba(139, 92, 246, 0.14));
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg);
+    padding: 10px 16px;
+    color: var(--text-contrast);
+  }
+
+  /* Assistant bubble */
+  .message-row.assistant .message-body {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 4px;
+    padding: 14px 18px;
+    color: var(--text-primary);
+  }
+
+  /* Error message */
+  .message-row.error .message-body {
+    background: var(--error-soft);
+    border-color: rgba(248, 113, 113, 0.35);
+  }
+  .message-row.error .avatar {
+    background: var(--error-strong);
+    border-color: transparent;
+    color: #fff;
+  }
+  .error-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--error);
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .banner-icon {
+    display: flex;
+    align-items: flex-start;
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── Empty state ────────────────────────────────────────────────────────── */
+  .empty-state {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    max-width: 460px;
+    text-align: center;
+    padding: 12px 20px 40px;
+  }
+  .empty-logo {
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+    background: var(--brand-gradient);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--brand-glow);
+    margin-bottom: 4px;
+  }
+  .empty-title {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: var(--text-primary);
+  }
+  .empty-sub {
+    margin: 0;
+    font-size: 0.92rem;
     line-height: 1.6;
+    color: var(--text-muted);
+  }
+  .empty-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+  }
+  .suggestion-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color var(--dur-med) var(--ease), background var(--dur-med) var(--ease),
+      color var(--dur-med) var(--ease), transform var(--dur-med) var(--ease);
+  }
+  .chip-icon {
+    display: flex;
+    align-items: center;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .suggestion-chip:hover {
+    background: var(--bg-elevated);
+    border-color: var(--accent-border);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+
+  /* ── Streaming indicators ───────────────────────────────────────────────── */
+  .typing-caret {
+    display: inline-block;
+    width: 8px;
+    height: 15px;
+    margin-left: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    animation: caret-blink 0.9s steps(2, start) infinite;
+  }
+  @keyframes caret-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0;
+    }
+  }
+  .typing-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 4px 0;
+  }
+  .typing-indicator span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.35;
+    animation: typing-bounce 1.2s var(--ease) infinite;
+  }
+  .typing-indicator span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .typing-indicator span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  @keyframes typing-bounce {
+    0%,
+    60%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.35;
+    }
+    30% {
+      transform: translateY(-4px);
+      opacity: 1;
+    }
+  }
+
+  /* ── Markdown ───────────────────────────────────────────────────────────── */
+  .markdown-content {
+    line-height: 1.65;
     font-size: 0.95rem;
+    color: var(--text-primary);
   }
   :global(.markdown-content p) {
-    margin: 0 0 8px 0;
+    margin: 0 0 10px 0;
   }
   :global(.markdown-content p:last-child) {
     margin-bottom: 0;
   }
+  :global(.markdown-content h1, .markdown-content h2, .markdown-content h3) {
+    margin: 16px 0 8px;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+  }
+  :global(.markdown-content h1) {
+    font-size: 1.35rem;
+  }
+  :global(.markdown-content h2) {
+    font-size: 1.15rem;
+  }
+  :global(.markdown-content h3) {
+    font-size: 1rem;
+  }
   :global(.markdown-content ul, .markdown-content ol) {
-    padding-left: 20px;
+    padding-left: 22px;
     margin: 8px 0;
   }
+  :global(.markdown-content li) {
+    margin: 4px 0;
+  }
+  :global(.markdown-content a) {
+    color: var(--chain);
+    text-decoration: none;
+  }
+  :global(.markdown-content a:hover) {
+    text-decoration: underline;
+  }
+  :global(.markdown-content code) {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 0.85em;
+    color: var(--info);
+  }
   :global(.markdown-content pre) {
-    background-color: #09090b;
-    border: 1px solid #27272a;
-    padding: 12px;
-    border-radius: 6px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
     overflow-x: auto;
+    margin: 10px 0;
+  }
+  :global(.markdown-content pre code) {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.6;
+  }
+  :global(.markdown-content blockquote) {
+    margin: 10px 0;
+    padding: 2px 14px;
+    border-left: 3px solid var(--accent);
+    color: var(--text-secondary);
+  }
+  :global(.markdown-content table) {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 0.88rem;
+  }
+  :global(.markdown-content th, .markdown-content td) {
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    text-align: left;
+  }
+  :global(.markdown-content th) {
+    background: var(--bg-elevated);
+    color: var(--text-secondary);
+  }
+  :global(.markdown-content hr) {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 16px 0;
+  }
+  :global(.markdown-content img) {
+    max-width: 100%;
+    border-radius: var(--radius-md);
   }
 </style>
