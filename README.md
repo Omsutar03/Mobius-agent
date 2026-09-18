@@ -114,3 +114,6 @@ Models are discovered automatically via `/v1/models` on each port. Only running 
 ## Session Storage
 
 Sessions are stored as JSON files in `~/.local/state/mobius/sessions/<ppid>.json`, one per terminal PID. Each file tracks message history, selected model provider/name, and thinking level.
+
+### License
+This project is licensed under the GNU General Public License v3.0. See the [LICENSE](LICENSE) file for the full license text.
